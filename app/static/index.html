@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FaceSwap Lab</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5f6b7a; --border: #dde2e8;
+    --accent: #3b5bdb; --accent-soft: #edf2ff; --accent-text: #fff; --error: #c92a2a; --ok: #2b8a3e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --card: #1a1e24; --text: #e8ebef; --muted: #98a2ae; --border: #2c323a;
+      --accent: #748ffc; --accent-soft: #1f2640; --accent-text: #0d1117; --error: #ff8787; --ok: #69db7c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .health { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+  .health b.ok { color: var(--ok); } .health b.bad { color: var(--error); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .grid .card { margin-bottom: 0; }
+  .card h2 { font-size: 15px; margin: 0 0 8px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+  .drop { display: flex; align-items: center; justify-content: center; min-height: 200px;
+          border: 2px dashed var(--border); border-radius: 10px; cursor: pointer; overflow: hidden;
+          color: var(--muted); text-align: center; padding: 8px; }
+  .drop:hover { border-color: var(--accent); }
+  .drop img, .drop video { max-width: 100%; max-height: 240px; border-radius: 6px; }
+  input[type=file] { display: none; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .choice { border: 1.5px solid var(--border); border-radius: 10px; padding: 12px; cursor: pointer; display: block; }
+  .choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .choice input { margin-right: 6px; }
+  .choice b { font-size: 14px; }
+  .choice p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .models { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 760px) { .models { grid-template-columns: 1fr; } }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted); }
+  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+  @media (max-width: 680px) { .opts { grid-template-columns: 1fr; } }
+  label.row { display: flex; gap: 8px; align-items: flex-start; }
+  label.row small { display: block; color: var(--muted); }
+  select, input[type=range] { accent-color: var(--accent); }
+  select { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+  button { padding: 12px 20px; border: 0; border-radius: 8px; font-weight: 600; font-size: 15px;
+           background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .bar { height: 10px; background: var(--border); border-radius: 99px; overflow: hidden; margin: 12px 0 6px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  #phase { font-weight: 600; font-size: 14px; }
+  #status { color: var(--muted); font-size: 14px; }
+  #status.error { color: var(--error); }
+  #result video { width: 100%; border-radius: 8px; margin-top: 10px; }
+  #result a { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>FaceSwap Lab</h1>
+  <p class="sub">InsightFace · HyperSwap · GHOST · Encoder propio — proyecto académico con participantes que dieron su consentimiento</p>
+  <div class="health" id="health">Comprobando servidor…</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1. Fuente (identidad que se pondrá)</h2>
+      <label class="drop" id="sourceDrop">
+        <span>Haz clic o arrastra una <b>selfie</b> o un <b>video corto</b> de la persona</span>
+        <input type="file" id="source" accept="image/*,video/*">
+      </label>
+      <p class="hint" id="sourceHint">Un video de la fuente (10–60 s girando la cabeza) da una identidad más estable que una sola foto.</p>
+    </div>
+    <div class="card">
+      <h2>2. Video destino</h2>
+      <label class="drop" id="videoDrop">
+        <span>Haz clic o arrastra el video donde se cambiará la cara</span>
+        <input type="file" id="video" accept="video/*">
+      </label>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>3. Método</h2>
+    <div class="tabs">
+      <label class="choice"><input type="radio" name="method" value="pretrained" checked>
+        <b>Modelo pre-entrenado</b>
+        <p>Funciona con una sola foto, sin entrenar. Resultado en minutos.</p></label>
+      <label class="choice"><input type="radio" name="method" value="encoder">
+        <b>Encoder propio (entrenar)</b>
+        <p>Entrena un autoencoder para este par de personas. Necesita un video de la fuente.</p></label>
+    </div>
+
+    <div id="pretrainedBox">
+      <div class="models" id="models"></div>
+    </div>
+
+    <div id="encoderBox" hidden>
+      <label class="row" style="align-items:center">Tiempo de entrenamiento:
+        <input type="range" id="minutes" min="5" max="120" step="5" value="20">
+        <b id="minutesLabel">20 min</b></label>
+      <p class="hint">Con 5–10 min se reconoce la cara pero sale borrosa; 30–60 min da resultados aceptables.
+        Si vuelves a usar el mismo par de archivos, el entrenamiento continúa donde se quedó.
+        Con solo una selfie como fuente el encoder aprende una única expresión: usa un video.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4. Integración (para que no parezca una máscara)</h2>
+    <div class="opts">
+      <label class="row"><input type="checkbox" id="occlusion">
+        <span>Máscara de oclusión (XSeg)<small>Actívala si hay manos, micrófonos u objetos delante de la cara (≈30 % más lento)</small></span></label>
+      <label class="row"><input type="checkbox" id="region" checked>
+        <span>Segmentación facial (BiSeNet)<small>Solo cambia piel, ojos, nariz y boca: no toca pelo ni fondo</small></span></label>
+      <label class="row"><input type="checkbox" id="color" checked>
+        <span>Igualar color e iluminación<small>Transfiere el tono de piel del video a la cara nueva</small></span></label>
+      <label class="row"><input type="checkbox" id="smooth" checked>
+        <span>Suavizado temporal<small>Elimina el temblor de la cara entre frames</small></span></label>
+      <label class="row">Caras a reemplazar:
+        <select id="mode">
+          <option value="largest">Solo la más grande</option>
+          <option value="all">Todas</option>
+        </select></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <label class="row">
+      <input type="checkbox" id="consent">
+      <span>Confirmo que todas las personas que aparecen en la fuente y en el video han dado su consentimiento para este experimento.</span>
+    </label>
+    <div style="margin-top:14px"><button id="go" disabled>Generar video</button></div>
+    <div id="progressBox" hidden>
+      <div class="bar"><div id="bar"></div></div>
+      <div id="phase"></div>
+      <div id="status"></div>
+    </div>
+    <div id="result"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const source = $("source"), video = $("video"), consent = $("consent"), go = $("go");
+const method = () => document.querySelector("input[name=method]:checked").value;
+const PHASES = { queued: "En cola", loading_models: "1/3 · Preparando modelos", training: "2/3 · Entrenando encoder",
+                 processing: "3/3 · Procesando video", done: "Terminado", error: "Error" };
+
+function preview(input, drop) {
+  const setFile = (file) => {
+    if (!file) return;
+    const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
+    const isVideo = file.type.startsWith("video");
+    const el = document.createElement(isVideo ? "video" : "img");
+    el.src = URL.createObjectURL(file);
+    if (isVideo) { el.muted = true; el.controls = true; }
+    drop.querySelector("span, img, video")?.remove();
+    drop.prepend(el);
+    refresh();
+  };
+  input.addEventListener("change", () => setFile(input.files[0]));
+  drop.addEventListener("dragover", (e) => e.preventDefault());
+  drop.addEventListener("drop", (e) => { e.preventDefault(); setFile(e.dataTransfer.files[0]); });
+}
+preview(source, $("sourceDrop"));
+preview(video, $("videoDrop"));
+consent.addEventListener("change", refresh);
+document.querySelectorAll("input[name=method]").forEach(r => r.addEventListener("change", () => {
+  $("pretrainedBox").hidden = method() !== "pretrained";
+  $("encoderBox").hidden = method() !== "encoder";
+}));
+$("minutes").addEventListener("input", () => $("minutesLabel").textContent = `${$("minutes").value} min`);
+
+function refresh() { go.disabled = !(source.files[0] && video.files[0] && consent.checked); }
+
+fetch("/api/models").then(r => r.json()).then(({ pretrained }) => {
+  $("models").innerHTML = pretrained.map((m, i) => `
+    <label class="choice"><input type="radio" name="model" value="${m.key}" ${i === 0 ? "checked" : ""}>
+      <b>${m.label}</b><p>${m.summary}</p>
+      <div class="tags"><span class="tag">calidad ${m.quality}</span><span class="tag">velocidad ${m.speed}</span>
+        <span class="tag">${m.license}</span>${m.downloaded ? "" : '<span class="tag">se descarga al usarlo</span>'}</div>
+    </label>`).join("");
+});
+
+go.addEventListener("click", async () => {
+  go.disabled = true;
+  $("result").innerHTML = "";
+  $("progressBox").hidden = false;
+  $("bar").style.width = "0";
+  $("phase").textContent = "Subiendo archivos…";
+  setStatus("");
+
+  const fd = new FormData();
+  fd.append("source", source.files[0]);
+  fd.append("video", video.files[0]);
+  fd.append("method", method());
+  fd.append("model", document.querySelector("input[name=model]:checked")?.value || "hyperswap_1a_256");
+  fd.append("train_minutes", $("minutes").value);
+  fd.append("mode", $("mode").value);
+  for (const k of ["occlusion", "region", "color", "smooth", "consent"]) fd.append(k, $(k).checked);
+
+  try {
+    const r = await fetch("/api/jobs", { method: "POST", body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "Error al crear el trabajo");
+    poll(data.id);
+  } catch (e) { setStatus(e.message, true); refresh(); }
+});
+
+function setStatus(text, isError = false) {
+  $("status").textContent = text;
+  $("status").className = isError ? "error" : "";
+}
+
+async function poll(id) {
+  let job;
+  try { job = await (await fetch(`/api/jobs/${id}`)).json(); }
+  catch { setStatus("Se perdió la conexión con el servidor.", true); refresh(); return; }
+  $("bar").style.width = `${Math.round((job.progress || 0) * 100)}%`;
+  $("phase").textContent = PHASES[job.status] || job.status;
+  setStatus(job.message || "", job.status === "error");
+  if (job.status === "done") {
+    const url = `/api/jobs/${id}/result`;
+    $("result").innerHTML = `<video src="${url}" controls autoplay></video><p><a href="${url}" download>Descargar video</a></p>`;
+    refresh();
+  } else if (job.status === "error") {
+    refresh();
+  } else {
+    setTimeout(() => poll(id), 1000);
+  }
+}
+
+fetch("/api/health").then(r => r.json()).then(h => {
+  const gpu = h.providers.includes("CUDAExecutionProvider");
+  $("health").innerHTML = `GPU: <b class="${gpu ? "ok" : "bad"}">${gpu ? "CUDA activo" : "no (CPU, será lento)"}</b>`;
+}).catch(() => { $("health").textContent = "No se pudo contactar al servidor."; });
+</script>
+</body>
+</html>

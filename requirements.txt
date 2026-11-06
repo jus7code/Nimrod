@@ -1,0 +1,19 @@
+# Servidor web
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+
+# Visión / modelos
+insightface>=2.1
+# GPU NVIDIA: el extra [cuda,cudnn] instala CUDA 12 + cuDNN 9 vía pip (no hace falta el toolkit).
+# Sin GPU NVIDIA, cambia esta línea por: onnxruntime
+onnxruntime-gpu[cuda,cudnn]>=1.21
+opencv-python>=4.9
+numpy>=1.26
+
+# ffmpeg empaquetado (re-codificar video y copiar el audio)
+imageio-ffmpeg>=0.5
+onnx>=1.15
+
+# Modo "Encoder propio": PyTorch con CUDA. Instálalo aparte desde el índice de PyTorch:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu130
