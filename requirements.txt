@@ -17,3 +17,16 @@ onnx>=1.15
 
 # Modo "Encoder propio": PyTorch con CUDA. Instálalo aparte desde el índice de PyTorch:
 #   pip install torch --index-url https://download.pytorch.org/whl/cu130
+
+# Character swap
+diffusers>=0.36            # Wan2.1-VACE (WanVACEPipeline)
+transformers>=4.50
+accelerate
+ftfy
+sentencepiece
+ultralytics>=8.3           # YOLO11-seg + ByteTrack (seguir a la persona)
+lap>=0.5.12                # lo necesita ByteTrack
+fal-client                 # Wan2.2-Animate en fal.ai (opcional)
+# torchvision con CUDA (ultralytics instala la de CPU por defecto):
+#   pip install --force-reinstall --no-deps torchvision --index-url https://download.pytorch.org/whl/cu130
+gradio_client>=1.3           # Wan2.2-Animate en un Space gratuito de Hugging Face (sin descargar modelos)

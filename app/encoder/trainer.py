@@ -10,6 +10,7 @@ Entrenamiento rápido del autoencoder para un par de personas (A = fuente, B = v
 from __future__ import annotations
 
 import hashlib
+import os
 import math
 import time
 from pathlib import Path
@@ -36,11 +37,20 @@ def file_key(path: Path) -> str:
 
 
 def extract_faces(engine: FaceEngine, masker: Masker, path: Path, max_faces: int, label: str,
-                  status_cb: StatusCb = None) -> tuple[np.ndarray, np.ndarray]:
+                  status_cb: StatusCb = None, targets: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
     crops, masks = [], []
+    matcher = None
+    if targets is not None:  # solo las caras de las personas elegidas en el escaneo
+        from ..scan import TargetMatcher
+
+        matcher = TargetMatcher(engine, targets, memory=1)  # frames salteados: sin continuidad espacial
 
     def add(frame):
-        det = engine.largest(frame)
+        if matcher is not None:
+            faces = matcher(frame, engine.detect(frame))
+            det = max(faces, key=lambda d: d.area) if faces else None
+        else:
+            det = engine.largest(frame)
         if det is None:
             return
         crop, _ = warp_face(frame, det.kps, TEMPLATE, RES)
@@ -105,12 +115,15 @@ def to_tensor(crops: np.ndarray, masks: np.ndarray, device) -> tuple[torch.Tenso
 
 
 def train(model: SwapAutoencoder, opt, A, B, minutes: float, device, status_cb: StatusCb = None,
-          batch: int = 8, start_iter: int = 0) -> int:
+          batch: int = 8, start_iter: int = 0, checkpoint_cb=None, checkpoint_every: float = 300.0) -> int:
+    """Entrena `minutes` minutos. Cada `checkpoint_every` s llama checkpoint_cb(iteración, minutos
+    entrenados en esta llamada) para guardar el progreso (si el proceso muere, no se pierde todo)."""
     aug = GpuAugment(device)
     a_img, a_mask = A
     b_img, b_mask = B
     deadline = time.time() + minutes * 60
     started, last_report, it, loss_ema = time.time(), 0.0, start_iter, None
+    last_ckpt = started
     model.train()
 
     def batch_from(imgs, masks):
@@ -134,6 +147,9 @@ def train(model: SwapAutoencoder, opt, A, B, minutes: float, device, status_cb: 
         it += 1
         loss_ema = loss.item() if loss_ema is None else 0.98 * loss_ema + 0.02 * loss.item()
         now = time.time()
+        if checkpoint_cb and now - last_ckpt > checkpoint_every:
+            last_ckpt = now
+            checkpoint_cb(it, (now - started) / 60)
         if status_cb and now - last_report > 1.0:
             last_report = now
             elapsed = now - started
@@ -163,13 +179,34 @@ class EncoderSwapper:
 
 
 def build_encoder_swapper(engine: FaceEngine, masker: Masker, source: Path, video: Path,
-                          minutes: float, ckpt_dir: Path, status_cb: StatusCb = None) -> EncoderSwapper:
+                          minutes: float, ckpt_dir: Path, status_cb: StatusCb = None,
+                          targets: np.ndarray | None = None, on_checkpoint=None) -> EncoderSwapper:
+    """Entrena (o continúa entrenando) el encoder del par fuente/video y devuelve el swapper.
+    Con minutes <= 0 y un checkpoint ya guardado, lo carga sin volver a extraer caras ni entrenar
+    (reanudar un trabajo cuyo entrenamiento ya terminó). on_checkpoint(minutos) se llama tras
+    cada guardado periódico durante el entrenamiento."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-    ckpt = ckpt_dir / f"{file_key(source)}_{file_key(video)}.pt"
+    # un checkpoint por par (y por persona elegida, si en el video hay varias)
+    who = "" if targets is None else "_" + hashlib.sha1(np.round(targets, 2).tobytes()).hexdigest()[:6]
+    ckpt = ckpt_dir / f"{file_key(source)}_{file_key(video)}{who}.pt"
+
+    def save(it: int) -> None:  # a un temporal y luego renombrar: un corte a mitad no corrompe el .pt
+        tmp = ckpt.with_suffix(".tmp")
+        torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "iter": it}, tmp)
+        os.replace(tmp, ckpt)
+
+    if minutes <= 0 and ckpt.exists():
+        model = SwapAutoencoder().to(device).to(memory_format=torch.channels_last)
+        state = torch.load(ckpt, map_location=device)
+        model.load_state_dict(state["model"])
+        if status_cb:
+            status_cb(f"Usando el encoder ya entrenado (iteración {state['iter']})...", 0.0)
+        del state
+        return EncoderSwapper(model, device)
 
     A = extract_faces(engine, masker, source, 1500, "fuente (A)", status_cb)
-    B = extract_faces(engine, masker, video, 1500, "video (B)", status_cb)
+    B = extract_faces(engine, masker, video, 1500, "video (B)", status_cb, targets)
     A, B = to_tensor(*A, device), to_tensor(*B, device)
 
     model = SwapAutoencoder().to(device).to(memory_format=torch.channels_last)  # Tensor Cores
@@ -183,8 +220,15 @@ def build_encoder_swapper(engine: FaceEngine, masker: Masker, source: Path, vide
         if status_cb:
             status_cb(f"Continuando entrenamiento previo de este par (iteración {start_iter})...", 0.0)
 
-    it = train(model, opt, A, B, minutes, device, status_cb, start_iter=start_iter)
-    torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "iter": it}, ckpt)
+    def checkpoint(it: int, trained: float) -> None:
+        if status_cb:
+            status_cb(f"Guardando checkpoint del encoder (iteración {it})...", min(trained / max(minutes, 1e-6), 1.0))
+        save(it)
+        if on_checkpoint:
+            on_checkpoint(trained)
+
+    it = train(model, opt, A, B, minutes, device, status_cb, start_iter=start_iter, checkpoint_cb=checkpoint)
+    save(it)
     del A, B
     if device.type == "cuda":
         torch.cuda.empty_cache()

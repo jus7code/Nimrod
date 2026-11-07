@@ -6,6 +6,7 @@ estos modelos convertidos a ONNX.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -86,6 +87,86 @@ PARSER = {  # BiSeNet: segmenta piel, cejas, ojos, nariz, boca... (excluye pelo,
 }
 
 ENCODER_MODEL = {"template": "arcface_128", "size": 128}
+
+# --------------------------------------------------------------------------- character swap
+CHAR_DIR = MODELS_DIR / "character"
+
+# Segmentación de personas (instancias + máscara) para seguir a la persona elegida en el video.
+PERSON_SEG = {
+    "file": MODELS_DIR / "ultralytics" / "yolo11s-seg.pt",
+    "urls": ["https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s-seg.pt"],
+}
+
+CHARACTER_MODELS: dict[str, dict] = {
+    "wan_animate_space": {
+        "label": "Wan2.2 Animate · 14B (Space gratuito)",
+        "summary": "Sin descargar nada: el modelo de 14B corre en una GPU A10G de un Space público de "
+                   "Hugging Face (ZeroGPU). Solo se suben el recorte de la persona y la foto. Gratis "
+                   "dentro de la cuota diaria de HF; tramos de hasta 20 s.",
+        "speed": "~2–6 min por cada 5 s + cola", "quality": "alta", "license": "Apache-2.0 (gratis, cuota HF)",
+        "vendor": "Alibaba Tongyi Wan · Space alexnasa", "runs": "hf_space",
+        "space": os.getenv("WAN_ANIMATE_SPACE", "alexnasa/Wan2.2-Animate-ZEROGPU"),
+        "gen_fps": 16, "chunk": 0, "max_seconds": 20, "orientations": ["portrait", "landscape"],
+    },
+    "vace_1_3b": {
+        "label": "Wan2.1 VACE · 1.3B",
+        "summary": "El ligero: corre en esta GPU de 6 GB. Rellena la silueta de la persona (máscara) "
+                   "guiándose por la foto de referencia. Rápido con el modo turbo, pero menos fiel "
+                   "en cara y manos que los modelos de 14B.",
+        "speed": "~3–8 min por cada 5 s (turbo)", "quality": "media", "license": "Apache-2.0",
+        "vendor": "Alibaba Tongyi Wan, 2025", "runs": "local",
+        "repo": "Wan-AI/Wan2.1-VACE-1.3B-diffusers", "dir": CHAR_DIR / "Wan2.1-VACE-1.3B-diffusers",
+        "download_gb": 19.0,
+        "turbo_lora": {  # CausVid bidireccional (destilación a pocos pasos) para Wan 1.3B
+            "repo": "Kijai/WanVideo_comfy", "file": "Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors",
+        },
+        "gen_fps": 16, "chunk": 81, "orientations": ["portrait", "landscape"],
+    },
+    "wan_animate_14b": {
+        "label": "Wan2.2 Animate · 14B (replace)",
+        "summary": "Equilibrio precisión/velocidad: modelo de 14B entrenado específicamente para "
+                   "sustituir personajes; copia pose y expresión con esqueleto + rasgos faciales y "
+                   "re-ilumina a la persona nueva con la luz de la escena. Se ejecuta en la nube.",
+        "speed": "~1–3 min por cada 5 s (nube)", "quality": "alta", "license": "Apache-2.0 (servicio de pago)",
+        "vendor": "Alibaba Tongyi Wan, 2025 · vía fal.ai", "runs": "cloud",
+        "endpoint": os.getenv("WAN_ANIMATE_ENDPOINT", "fal-ai/wan/v2.2-14b/animate/replace"),
+        "requires_env": "FAL_KEY",
+        "gen_fps": 16, "chunk": 0, "orientations": ["portrait", "landscape"],
+    },
+    "mocha_14b": {
+        "label": "MoCha · 14B",
+        "summary": "El más preciso según los benchmarks (CVPR 2026): no usa esqueleto ni máscaras por "
+                   "frame, solo la máscara del primer frame + foto de cuerpo + primer plano de la cara. "
+                   "Necesita una GPU de ≥ 48 GB: se ejecuta con el repositorio oficial en esa máquina.",
+        "speed": "lento (~10+ min por cada 5 s en A100)", "quality": "muy alta", "license": "ver repositorio",
+        "vendor": "Orange 3DV Team, 2025–26", "runs": "external",
+        "requires_env": "MOCHA_DIR",
+        "gen_fps": 16, "chunk": 81, "orientations": ["landscape"],
+    },
+}
+
+
+def character_availability(key: str) -> tuple[bool, str]:
+    m = CHARACTER_MODELS[key]
+    env = m.get("requires_env")
+    if env and not os.getenv(env):
+        return False, f"Falta la variable de entorno {env} (ver README)"
+    if m["runs"] == "local":
+        weights = list((m["dir"] / "transformer").glob("*.safetensors"))
+        return True, "" if weights else f"se descarga al usarlo (~{m['download_gb']:.0f} GB)"
+    return True, ""
+
+
+def public_character_catalog() -> list[dict]:
+    out = []
+    for key, m in CHARACTER_MODELS.items():
+        ok, note = character_availability(key)
+        out.append({
+            "key": key, "label": m["label"], "summary": m["summary"], "speed": m["speed"],
+            "quality": m["quality"], "license": m["license"], "vendor": m["vendor"], "runs": m["runs"],
+            "available": ok, "note": note, "max_seconds": m.get("max_seconds", 30),
+        })
+    return out
 
 
 def public_catalog() -> list[dict]:

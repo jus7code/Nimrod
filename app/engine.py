@@ -12,6 +12,7 @@ Para cada frame del video:
 """
 from __future__ import annotations
 
+import os
 import queue
 import subprocess
 import tempfile
@@ -154,6 +155,7 @@ class FaceEngine:
         )
         self.analyzer.prepare(ctx_id=ctx_id, det_size=det_size)
         self.detector = self.analyzer.models["detection"]
+        self.recognizer = self.analyzer.models["recognition"]
         self._sessions: dict[str, ort.InferenceSession] = {}
         self._swap_session: tuple[str, ort.InferenceSession] | None = None
 
@@ -192,6 +194,17 @@ class FaceEngine:
         if kpss is None:
             return []
         return [Detection(bboxes[i, :4], kpss[i], float(bboxes[i, 4])) for i in range(bboxes.shape[0])]
+
+    def embed(self, frame: np.ndarray, faces: list[Detection]) -> np.ndarray:
+        """Embeddings ArcFace normalizados (N×512) de varias caras de un mismo frame, en un solo lote."""
+        if not faces:
+            return np.zeros((0, 512), np.float32)
+        from insightface.utils import face_align
+
+        size = self.recognizer.input_size[0]
+        crops = [face_align.norm_crop(frame, landmark=d.kps, image_size=size) for d in faces]
+        emb = np.asarray(self.recognizer.get_feat(crops), np.float32).reshape(len(faces), -1)
+        return emb / np.linalg.norm(emb, axis=1, keepdims=True)
 
     def largest(self, frame: np.ndarray) -> Optional[Detection]:
         faces = self.detect(frame)
@@ -331,10 +344,11 @@ class Swapper(Protocol):
 
 @dataclass
 class PipelineOptions:
-    mode: str = "largest"      # "largest" | "all"
+    mode: str = "largest"      # "largest" | "all" | "selected"
     color: bool = True
     smooth: bool = True
     watermark: bool = True
+    targets: Optional[np.ndarray] = None  # K×512: identidades elegidas en el escaneo (modo "selected")
 
 
 def swap_frame(frame, faces, swapper: Swapper, masker: Masker, opts: PipelineOptions) -> np.ndarray:
@@ -348,32 +362,64 @@ def swap_frame(frame, faces, swapper: Swapper, masker: Masker, opts: PipelineOpt
     return frame
 
 
+SEGMENT_SECONDS = 10.0  # el video se escribe en tramos independientes de ~10 s (ver SegmentWriter)
+RESUME_WARMUP = 8       # frames previos que se vuelven a analizar al reanudar (suavizado y seguimiento)
+
+
+def segment_frames(fps: float) -> int:
+    return max(1, int(round(fps * SEGMENT_SECONDS)))
+
+
 def process_video(
     engine: FaceEngine, swapper: Swapper, masker: Masker, opts: PipelineOptions,
-    video_in: Path, video_out: Path, progress_cb: Optional[Callable[[int, int, float], None]] = None,
-) -> Path:
+    video_in: Path, seg_dir: Path, progress_cb: Optional[Callable[[int, int, float], None]] = None,
+    start_frame: int = 0, on_segment: Optional[Callable[[str, int], None]] = None,
+) -> int:
+    """Procesa el video desde `start_frame` y lo escribe en tramos dentro de `seg_dir`
+    (ver SegmentWriter). `start_frame` debe ser un límite de tramo (el total de frames de los
+    tramos ya terminados). Devuelve el número total de frames del video procesado."""
     cap = cv2.VideoCapture(str(video_in))
     if not cap.isOpened():
         raise ValueError("No se pudo abrir el video.")
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    seg_len = segment_frames(fps)
+    if start_frame % seg_len:
+        raise ValueError(f"start_frame={start_frame} no es un límite de tramo ({seg_len} frames)")
 
-    # Hilo lector: decodifica frames mientras la GPU procesa los anteriores
+    # Hilo lector: decodifica frames mientras la GPU procesa los anteriores. Al reanudar, los
+    # frames ya hechos se saltan con grab() (exacto, a diferencia de buscar por posición), salvo
+    # los últimos RESUME_WARMUP, que se analizan sin escribirse para que el suavizado y el
+    # seguimiento de las personas lleguen al punto de reanudación en el mismo estado.
     frames: queue.Queue = queue.Queue(maxsize=16)
+    stop = threading.Event()
 
     def reader():
-        while True:
+        i, skip = 0, max(0, start_frame - RESUME_WARMUP)
+        while i < skip and not stop.is_set():
+            if not cap.grab():
+                frames.put(None)
+                return
+            i += 1
+        while not stop.is_set():
             ok, frame = cap.read()
             if not ok:
                 frames.put(None)
                 return
-            frames.put(frame)
+            frames.put((i, frame))
+            i += 1
 
-    threading.Thread(target=reader, daemon=True).start()
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
 
     smoother = KpsSmoother() if opts.smooth else None
-    writer: Optional[FfmpegWriter] = None
-    started, idx = time.time(), 0
+    matcher = None
+    if opts.mode == "selected":
+        from .scan import TargetMatcher
+
+        matcher = TargetMatcher(engine, opts.targets)
+    writer: Optional[SegmentWriter] = None
+    started, idx = time.time(), start_frame
 
     def work(frame, faces):
         frame = swap_frame(frame, faces, swapper, masker, opts)
@@ -390,50 +436,157 @@ def process_video(
             writer.write(pending.popleft().result())
             idx += 1
             if progress_cb:
-                progress_cb(idx, max(total, idx), idx / max(time.time() - started, 1e-6))
+                progress_cb(idx, max(total, idx), (idx - start_frame) / max(time.time() - started, 1e-6))
 
+    ok = False
     try:
-        while (frame := frames.get()) is not None:
-            if writer is None:
-                h, w = frame.shape[:2]
-                writer = FfmpegWriter(video_out, video_in, w, h, fps)
+        while (item := frames.get()) is not None:
+            i, frame = item
             faces = engine.detect(frame)
-            if opts.mode != "all" and faces:
+            if matcher is not None:
+                faces = matcher(frame, faces)
+            elif opts.mode != "all" and faces:
                 faces = [max(faces, key=lambda d: d.area)]
             if smoother is not None:
                 faces = smoother(faces)
+            if i < start_frame:
+                continue  # calentamiento: solo actualiza el estado del suavizado y del seguimiento
+            if writer is None:
+                h, w = frame.shape[:2]
+                writer = SegmentWriter(seg_dir, w, h, fps, seg_len, start_frame // seg_len, on_segment)
+                started = time.time()
             pending.append(pool.submit(work, frame, faces))
             flush(limit=4)
         if writer is not None:
             flush(limit=0)
+        ok = True
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
-        cap.release()
+        stop.set()
+        while True:  # vacía la cola para que el lector no se quede bloqueado y suelte el video
+            try:
+                frames.get_nowait()
+            except queue.Empty:
+                break
+        reader_thread.join(timeout=5)
         if writer is not None:
-            writer.close()
-    if writer is None:
+            if ok:
+                writer.close()  # cierra (y da por terminado) el último tramo, aunque sea más corto
+            else:
+                writer.abort()
+        cap.release()
+    if writer is None and start_frame == 0:
         raise ValueError("El video no tiene frames legibles.")
-    return video_out
+    return idx
+
+
+class SegmentWriter:
+    """Escribe el video en tramos de `seg_len` frames: seg_00000.mp4, seg_00001.mp4...
+
+    Cada tramo es un MP4 completo e independiente (solo video). Mientras se escribe se llama
+    `seg_XXXXX.part.mp4`; al cerrarse bien se renombra y se avisa con on_segment(nombre, frames).
+    Si el proceso muere a mitad, solo se pierde el tramo en curso (su .part.mp4 queda corrupto
+    y se descarta al reanudar). Al final, concat_segments() une los tramos y añade el audio."""
+
+    def __init__(self, seg_dir: Path, w: int, h: int, fps: float, seg_len: int, first_index: int,
+                 on_segment: Optional[Callable[[str, int], None]] = None):
+        self.dir, self.w, self.h, self.fps, self.seg_len = seg_dir, w, h, fps, seg_len
+        self.index, self.on_segment = first_index, on_segment
+        self.cur: Optional[FfmpegWriter] = None
+        self.n = 0
+        seg_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def _part(self) -> Path:
+        return self.dir / f"seg_{self.index:05d}.part.mp4"
+
+    def write(self, frame: np.ndarray) -> None:
+        if self.cur is None:
+            self.cur = FfmpegWriter(self._part, None, self.w, self.h, self.fps)
+        self.cur.write(frame)
+        self.n += 1
+        if self.n >= self.seg_len:
+            self._finish()
+
+    def _finish(self) -> None:
+        cur, self.cur = self.cur, None
+        cur.close()
+        name = f"seg_{self.index:05d}.mp4"
+        os.replace(self._part, self.dir / name)
+        if self.on_segment:
+            self.on_segment(name, self.n)
+        self.index, self.n = self.index + 1, 0
+
+    def close(self) -> None:
+        if self.cur is not None:
+            self._finish()
+
+    def abort(self) -> None:
+        cur, self.cur = self.cur, None
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._part.unlink(missing_ok=True)
+
+
+def concat_segments(segments: list[Path], out: Path, audio_src: Optional[Path]) -> Path:
+    """Une los tramos sin recodificar (copia el H.264) y añade el audio original, recortado a la
+    duración del video (sirve también para un resultado parcial). Escribe a un archivo temporal y
+    lo renombra al final: si se corta a mitad, `out` no queda corrupto."""
+    import imageio_ffmpeg
+
+    if not segments:
+        raise ValueError("No hay tramos que unir.")
+    seg_dir = segments[0].parent
+    listing = out.with_name(out.stem + ".concat.txt")
+    lines = []
+    for s in segments:
+        p = s.resolve().as_posix().replace("'", r"'\''")
+        lines.append(f"file '{p}'")
+    listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp = out.with_name(out.stem + ".tmp.mp4")
+    cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error",
+           "-f", "concat", "-safe", "0", "-i", str(listing)]
+    if audio_src is not None:
+        cmd += ["-i", str(audio_src), "-map", "0:v:0", "-map", "1:a:0?", "-c:v", "copy", "-c:a", "aac", "-shortest"]
+    else:
+        cmd += ["-c", "copy"]
+    cmd += ["-movflags", "+faststart", str(tmp)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, cwd=seg_dir)
+        if proc.returncode != 0:
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError(f"ffmpeg falló al unir los tramos: {proc.stderr.decode(errors='replace').strip()}")
+        os.replace(tmp, out)
+    finally:
+        listing.unlink(missing_ok=True)
+    return out
 
 
 class FfmpegWriter:
     """Envía los frames crudos a ffmpeg, que codifica H.264 y añade el audio original
     en un solo paso (sin archivo intermedio)."""
 
-    def __init__(self, out: Path, audio_src: Path, w: int, h: int, fps: float):
+    def __init__(self, out: Path, audio_src: Optional[Path], w: int, h: int, fps: float,
+                 audio_start: float = 0.0, crf: int = 17):
         import imageio_ffmpeg
 
         self.log = tempfile.TemporaryFile()
         cmd = [
             imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error",
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", f"{fps:.6f}", "-i", "-",
-            "-i", str(audio_src),
-            "-map", "0:v:0", "-map", "1:a:0?",
-            "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-shortest", "-movflags", "+faststart",
-            str(out),
         ]
+        if audio_src is not None:  # audio original (desde audio_start: el tramo procesado)
+            cmd += ["-ss", f"{audio_start:.3f}", "-i", str(audio_src), "-map", "0:v:0", "-map", "1:a:0?"]
+        cmd += [
+            "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf), "-pix_fmt", "yuv420p",
+        ]
+        if audio_src is not None:
+            cmd += ["-c:a", "aac", "-shortest"]
+        cmd += ["-movflags", "+faststart", str(out)]
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=self.log)
 
     def write(self, frame: np.ndarray) -> None:

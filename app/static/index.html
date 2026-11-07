@@ -8,36 +8,41 @@
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5f6b7a; --border: #dde2e8;
     --accent: #3b5bdb; --accent-soft: #edf2ff; --accent-text: #fff; --error: #c92a2a; --ok: #2b8a3e;
+    --warn-bg: #fff4e6; --warn: #a35200;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #111418; --card: #1a1e24; --text: #e8ebef; --muted: #98a2ae; --border: #2c323a;
       --accent: #748ffc; --accent-soft: #1f2640; --accent-text: #0d1117; --error: #ff8787; --ok: #69db7c;
+      --warn-bg: #2b2112; --warn: #ffc078;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
   h1 { margin: 0 0 4px; font-size: 26px; }
   .sub { color: var(--muted); margin: 0 0 16px; }
   .health { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
   .health b.ok { color: var(--ok); } .health b.bad { color: var(--error); }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
   @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
   .grid .card { margin-bottom: 0; }
   .card h2 { font-size: 15px; margin: 0 0 8px; }
-  .hint { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .warn { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 10px; }
   .drop { display: flex; align-items: center; justify-content: center; min-height: 200px;
           border: 2px dashed var(--border); border-radius: 10px; cursor: pointer; overflow: hidden;
           color: var(--muted); text-align: center; padding: 8px; }
   .drop:hover { border-color: var(--accent); }
   .drop img, .drop video { max-width: 100%; max-height: 240px; border-radius: 6px; }
   input[type=file] { display: none; }
-  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tabs.inner { margin-bottom: 14px; }
   .choice { border: 1.5px solid var(--border); border-radius: 10px; padding: 12px; cursor: pointer; display: block; }
   .choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .choice.off { opacity: .55; }
   .choice input { margin-right: 6px; }
   .choice b { font-size: 14px; }
   .choice p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
@@ -45,76 +50,157 @@
   @media (max-width: 760px) { .models { grid-template-columns: 1fr; } }
   .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
   .tag { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted); }
-  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+  .tag.bad { border-color: var(--error); color: var(--error); }
+  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
   @media (max-width: 680px) { .opts { grid-template-columns: 1fr; } }
   label.row { display: flex; gap: 8px; align-items: flex-start; }
   label.row small { display: block; color: var(--muted); }
   select, input[type=range] { accent-color: var(--accent); }
-  select { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+  input[type=text], input[type=number], textarea { width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border);
+         background: var(--card); color: var(--text); font: inherit; }
+  textarea { resize: vertical; min-height: 56px; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
   button { padding: 12px 20px; border: 0; border-radius: 8px; font-weight: 600; font-size: 15px;
            background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button.link { background: none; color: var(--accent); padding: 0; font-size: 13px; font-weight: 500; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   .bar { height: 10px; background: var(--border); border-radius: 99px; overflow: hidden; margin: 12px 0 6px; }
   .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
   #phase { font-weight: 600; font-size: 14px; }
-  #status { color: var(--muted); font-size: 14px; }
-  #status.error { color: var(--error); }
+  #status, #scanStatus { color: var(--muted); font-size: 14px; }
+  #status.error, #scanStatus.error { color: var(--error); }
   #result video { width: 100%; border-radius: 8px; margin-top: 10px; }
   #result a { color: var(--accent); }
+  .people { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 10px; }
+  .person { border: 1.5px solid var(--border); border-radius: 10px; padding: 8px; cursor: pointer; display: block; position: relative; }
+  .person:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .person input { position: absolute; top: 12px; left: 12px; width: 18px; height: 18px; }
+  .person img.face { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; display: block; }
+  .person img.ctx { width: 100%; border-radius: 4px; margin-top: 6px; display: none; }
+  .person:hover img.ctx { display: block; }
+  .person small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .scanhead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .consent { border-color: var(--accent); }
+  .consent label.row { font-size: 14px; }
+  .pending-job { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+                 padding: 10px 0; border-top: 1px solid var(--border); }
+  .pending-job:first-of-type { border-top: 0; }
+  .pending-job .info { flex: 1 1 320px; font-size: 14px; }
+  .pending-job .info small { display: block; color: var(--muted); }
+  .pending-job .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pending-job .actions a { color: var(--accent); font-size: 13px; }
+  button.small { padding: 7px 12px; font-size: 13px; }
+  button.ghost { background: none; color: var(--accent); border: 1px solid var(--border); }
+  #resumeCard { border-color: var(--warn); }
+  #partialLink { font-size: 13px; margin-top: 6px; }
+  #partialLink a { color: var(--accent); }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <h1>FaceSwap Lab</h1>
-  <p class="sub">InsightFace · HyperSwap · GHOST · Encoder propio — proyecto académico con participantes que dieron su consentimiento</p>
+  <p class="sub">Face swap y character swap con modelos abiertos. Proyecto académico con participantes que dieron su consentimiento.</p>
   <div class="health" id="health">Comprobando servidor…</div>
+
+  <div class="card" id="resumeCard" hidden>
+    <h2>Trabajos interrumpidos</h2>
+    <p class="hint" style="margin:0 0 6px">Se cortaron antes de terminar (p. ej. se cerró el servidor). Lo ya generado está guardado.</p>
+    <div id="pendingJobs"></div>
+  </div>
+
+  <div class="card">
+    <h2>0. ¿Qué quieres cambiar?</h2>
+    <div class="tabs">
+      <label class="choice"><input type="radio" name="task" value="face" checked>
+        <b>Face swap · solo la cara</b>
+        <p>Se cambia la cara y se conservan pelo, cuerpo, ropa y fondo. Rápido (≈20 fps), procesa el video completo.</p></label>
+      <label class="choice"><input type="radio" name="task" value="character">
+        <b>Character swap · persona completa</b>
+        <p>Se sustituye a la persona entera (cara, pelo, cuerpo y ropa: p. ej. tú con corbata en una conferencia)
+          conservando sus movimientos. Usa modelos de difusión de video: lento, tramos de hasta 30 s.</p></label>
+    </div>
+  </div>
 
   <div class="grid">
     <div class="card">
-      <h2>1. Fuente (identidad que se pondrá)</h2>
+      <h2>1. Persona autorizada (fuente)</h2>
       <label class="drop" id="sourceDrop">
-        <span>Haz clic o arrastra una <b>selfie</b> o un <b>video corto</b> de la persona</span>
+        <span>Haz clic o arrastra una <b>foto</b> o un <b>video corto</b> de la persona autorizada</span>
         <input type="file" id="source" accept="image/*,video/*">
       </label>
-      <p class="hint" id="sourceHint">Un video de la fuente (10–60 s girando la cabeza) da una identidad más estable que una sola foto.</p>
+      <p class="hint" id="sourceHint"></p>
     </div>
     <div class="card">
       <h2>2. Video destino</h2>
       <label class="drop" id="videoDrop">
-        <span>Haz clic o arrastra el video donde se cambiará la cara</span>
+        <span>Haz clic o arrastra el video donde se hará el cambio</span>
         <input type="file" id="video" accept="video/*">
       </label>
+      <p class="hint">Al subirlo se escanea automáticamente para detectar los rostros.</p>
     </div>
   </div>
 
-  <div class="card" style="margin-top:16px">
-    <h2>3. Método</h2>
-    <div class="tabs">
-      <label class="choice"><input type="radio" name="method" value="pretrained" checked>
-        <b>Modelo pre-entrenado</b>
-        <p>Funciona con una sola foto, sin entrenar. Resultado en minutos.</p></label>
-      <label class="choice"><input type="radio" name="method" value="encoder">
-        <b>Encoder propio (entrenar)</b>
-        <p>Entrena un autoencoder para este par de personas. Necesita un video de la fuente.</p></label>
+  <div class="card" id="scanCard">
+    <div class="scanhead">
+      <h2 id="scanTitle">3. ¿A quién se cambia?</h2>
+      <span>
+        <button class="link" id="selectAll" hidden>Seleccionar todas</button>
+        <button class="link" id="showMore" hidden></button>
+      </span>
     </div>
-
-    <div id="pretrainedBox">
-      <div class="models" id="models"></div>
-    </div>
-
-    <div id="encoderBox" hidden>
-      <label class="row" style="align-items:center">Tiempo de entrenamiento:
-        <input type="range" id="minutes" min="5" max="120" step="5" value="20">
-        <b id="minutesLabel">20 min</b></label>
-      <p class="hint">Con 5–10 min se reconoce la cara pero sale borrosa; 30–60 min da resultados aceptables.
-        Si vuelves a usar el mismo par de archivos, el entrenamiento continúa donde se quedó.
-        Con solo una selfie como fuente el encoder aprende una única expresión: usa un video.</p>
-    </div>
+    <div id="scanStatus">Sube el video destino para detectar las personas que aparecen.</div>
+    <div class="people" id="people"></div>
   </div>
 
   <div class="card">
-    <h2>4. Integración (para que no parezca una máscara)</h2>
+    <h2>4. Modelo</h2>
+
+    <div id="faceBox">
+      <div class="tabs inner">
+        <label class="choice"><input type="radio" name="method" value="pretrained" checked>
+          <b>Modelo pre-entrenado</b>
+          <p>Funciona con una sola foto, sin entrenar. Resultado en minutos.</p></label>
+        <label class="choice"><input type="radio" name="method" value="encoder">
+          <b>Encoder propio (entrenar)</b>
+          <p>Entrena un autoencoder para este par de personas. Necesita un video de la fuente.</p></label>
+      </div>
+      <div id="pretrainedBox"><div class="models" id="models"></div></div>
+      <div id="encoderBox" hidden>
+        <label class="row" style="align-items:center">Tiempo de entrenamiento:
+          <input type="range" id="minutes" min="5" max="120" step="5" value="20">
+          <b id="minutesLabel">20 min</b></label>
+        <p class="hint">Con 5–10 min se reconoce la cara pero sale borrosa; 30–60 min da resultados aceptables.
+          Si vuelves a usar el mismo par de archivos, el entrenamiento continúa donde se quedó.
+          Con solo una selfie como fuente el encoder aprende una única expresión: usa un video.</p>
+      </div>
+    </div>
+
+    <div id="charBox" hidden>
+      <div class="models" id="charModels"></div>
+      <div class="opts" style="margin-top:14px">
+        <label class="field">Inicio del tramo (s)
+          <input type="number" id="start" min="0" step="0.5" value="0"></label>
+        <label class="field">Duración: <b id="durLabel">5 s</b>
+          <input type="range" id="duration" min="1" max="30" step="1" value="5"></label>
+        <label class="field" style="grid-column: 1 / -1">Descripción de la persona nueva (opcional, en inglés; la usa VACE)
+          <textarea id="prompt" placeholder="a man wearing a dark navy suit, white shirt and a red tie, giving a talk on a conference stage"></textarea></label>
+        <label class="field" id="hfTokenBox" style="grid-column: 1 / -1">Token de Hugging Face (opcional, muy recomendado para el Space gratuito)
+          <input type="password" id="hfToken" autocomplete="off" placeholder="hf_…  (huggingface.co/settings/tokens, permiso «read»)">
+          <small class="hint" style="margin:0">Sin token la cuota anónima de GPU es casi nula (≈2 min/día por IP, y cada petición reserva ~2 min).
+            Con una cuenta gratuita hay más cuota. El token solo se usa para este trabajo y no se guarda.</small></label>
+        <label class="row"><input type="checkbox" id="turbo" checked>
+          <span>Modo turbo<small>VACE: LoRA CausVid, 8 pasos en vez de 25 (≈3× más rápido). Wan-Animate en fal.ai: modo turbo</small></span></label>
+        <label class="row"><input type="checkbox" id="hq">
+          <span>Más resolución (solo Wan-Animate)<small>fal.ai: 720p · Space gratuito: "Medium Res". Más nítido y más lento</small></span></label>
+      </div>
+      <p class="hint">Se procesa solo el tramo elegido; el resultado es ese tramo con su audio. La persona se genera a 16 fps
+        (el fondo conserva los fps originales). Una persona de espaldas todo el tramo no se puede seguir: elige un tramo donde se le vea la cara al menos un momento.</p>
+    </div>
+  </div>
+
+  <div class="card" id="integrationCard">
+    <h2>5. Integración (para que no parezca una máscara)</h2>
     <div class="opts">
       <label class="row"><input type="checkbox" id="occlusion">
         <span>Máscara de oclusión (XSeg)<small>Actívala si hay manos, micrófonos u objetos delante de la cara (≈30 % más lento)</small></span></label>
@@ -124,24 +210,24 @@
         <span>Igualar color e iluminación<small>Transfiere el tono de piel del video a la cara nueva</small></span></label>
       <label class="row"><input type="checkbox" id="smooth" checked>
         <span>Suavizado temporal<small>Elimina el temblor de la cara entre frames</small></span></label>
-      <label class="row">Caras a reemplazar:
-        <select id="mode">
-          <option value="largest">Solo la más grande</option>
-          <option value="all">Todas</option>
-        </select></label>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card consent">
+    <h2>Verificación de autorización</h2>
     <label class="row">
       <input type="checkbox" id="consent">
-      <span>Confirmo que todas las personas que aparecen en la fuente y en el video han dado su consentimiento para este experimento.</span>
+      <span>Confirmo que <b>todas las personas involucradas</b> — la persona autorizada de la fuente y las personas
+        seleccionadas del video destino — han dado su consentimiento informado para este uso, y que el resultado no se
+        presentará como real.</span>
     </label>
-    <div style="margin-top:14px"><button id="go" disabled>Generar video</button></div>
+    <div style="margin-top:14px"><button id="go" disabled>Generar video</button>
+      <span class="hint" id="goHint" style="margin-left:10px"></span></div>
     <div id="progressBox" hidden>
       <div class="bar"><div id="bar"></div></div>
       <div id="phase"></div>
       <div id="status"></div>
+      <div id="partialLink" hidden></div>
     </div>
     <div id="result"></div>
   </div>
@@ -150,11 +236,21 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const source = $("source"), video = $("video"), consent = $("consent"), go = $("go");
-const method = () => document.querySelector("input[name=method]:checked").value;
-const PHASES = { queued: "En cola", loading_models: "1/3 · Preparando modelos", training: "2/3 · Entrenando encoder",
-                 processing: "3/3 · Procesando video", done: "Terminado", error: "Error" };
+const radio = (name) => document.querySelector(`input[name=${name}]:checked`)?.value;
+const task = () => radio("task");
+const PHASES = { queued: "En cola", loading_models: "Preparando modelos", training: "Entrenando encoder",
+                 processing: "Procesando video", preparing: "Siguiendo a la persona", generating: "Generando persona",
+                 compositing: "Componiendo el video", finalizing: "Uniendo tramos", interrupted: "Interrumpido",
+                 done: "Terminado", error: "Error" };
+const RUNNING = new Set(["queued", "loading_models", "training", "processing", "preparing", "generating",
+                         "compositing", "finalizing"]);
+const store = {   // id del trabajo en curso, para retomarlo si se recarga la página (puede no haber storage)
+  get() { try { return localStorage.getItem("activeJob"); } catch { return null; } },
+  set(id) { try { id ? localStorage.setItem("activeJob", id) : localStorage.removeItem("activeJob"); } catch {} },
+};
+let scan = null, showAll = false, charCatalog = [];
 
-function preview(input, drop) {
+function preview(input, drop, onFile) {
   const setFile = (file) => {
     if (!file) return;
     const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
@@ -164,6 +260,7 @@ function preview(input, drop) {
     if (isVideo) { el.muted = true; el.controls = true; }
     drop.querySelector("span, img, video")?.remove();
     drop.prepend(el);
+    onFile?.(file);
     refresh();
   };
   input.addEventListener("change", () => setFile(input.files[0]));
@@ -171,77 +268,276 @@ function preview(input, drop) {
   drop.addEventListener("drop", (e) => { e.preventDefault(); setFile(e.dataTransfer.files[0]); });
 }
 preview(source, $("sourceDrop"));
-preview(video, $("videoDrop"));
-consent.addEventListener("change", refresh);
+preview(video, $("videoDrop"), runScan);
+
+// ------------------------------------------------------------------ escaneo y selección
+async function runScan(file) {
+  scan = null; showAll = false;
+  $("people").innerHTML = "";
+  $("selectAll").hidden = $("showMore").hidden = true;
+  setText("scanStatus", "Escaneando rostros (≈2 frames/s)… la primera vez también se cargan los modelos.");
+  const fd = new FormData(); fd.append("video", file);
+  try {
+    const r = await fetch("/api/scan", { method: "POST", body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "Error al escanear");
+    scan = data;
+    const i = data.info;
+    $("start").max = Math.max(0, Math.floor(i.duration - 1));
+    setText("scanStatus", data.people.length
+      ? `${data.people.length} persona(s) en ${i.duration.toFixed(1)} s de video · ${i.sampled_frames} frames analizados en ${i.scan_seconds} s. ` +
+        `Pasa el ratón sobre una cara para ver dónde aparece.`
+      : "No se detectó ningún rostro en el video.", !data.people.length);
+    renderPeople();
+  } catch (e) { setText("scanStatus", e.message, true); }
+  refresh();
+}
+
+function renderPeople() {
+  if (!scan) return;
+  const multi = task() === "face";
+  const checked = new Set([...document.querySelectorAll("input[name=person]:checked")].map(x => +x.value));
+  const frequent = scan.people.filter(p => p.count >= 2);
+  const list = showAll || frequent.length === 0 ? scan.people : frequent;
+  const hidden = scan.people.length - list.length;
+  if (checked.size === 0 && list.length) checked.add(list[0].id);   // por defecto: la que más aparece
+  if (!multi && checked.size > 1) { const first = [...checked][0]; checked.clear(); checked.add(first); }
+  $("people").innerHTML = list.map(p => `
+    <label class="person"><input type="${multi ? "checkbox" : "radio"}" name="person" value="${p.id}" ${checked.has(p.id) ? "checked" : ""}>
+      <img class="face" src="${p.thumb}" alt="Persona ${p.id + 1}">
+      <img class="ctx" src="${p.context}" alt="">
+      <small><b>Persona ${p.id + 1}</b> · en ${Math.round(p.share * 100)} % del video · desde ${p.first_t.toFixed(1)} s</small>
+    </label>`).join("");
+  document.querySelectorAll("input[name=person]").forEach(x => x.addEventListener("change", refresh));
+  $("selectAll").hidden = !multi || list.length < 2;
+  $("showMore").hidden = hidden === 0 && !showAll;
+  $("showMore").textContent = showAll ? "Ocultar apariciones breves" : `Mostrar ${hidden} más (apariciones breves)`;
+  $("scanTitle").textContent = multi ? "3. ¿A quién se cambia? (una o varias caras)" : "3. ¿A quién se cambia? (una persona)";
+}
+$("showMore").addEventListener("click", () => { showAll = !showAll; renderPeople(); refresh(); });
+$("selectAll").addEventListener("click", () => {
+  document.querySelectorAll("input[name=person]").forEach(x => x.checked = true); refresh();
+});
+const selected = () => [...document.querySelectorAll("input[name=person]:checked")].map(x => x.value);
+
+// ------------------------------------------------------------------ modo y modelos
+function applyTask() {
+  const face = task() === "face";
+  $("faceBox").hidden = !face;
+  $("charBox").hidden = face;
+  $("integrationCard").hidden = !face;
+  $("sourceHint").textContent = face
+    ? "Un video de la fuente (10–60 s girando la cabeza) da una identidad más estable que una sola foto."
+    : "Ideal: foto de cuerpo entero, de frente, bien iluminada, con la ropa que quieres que aparezca (p. ej. traje y corbata). Si subes un video se elige el mejor frame.";
+  go.textContent = face ? "Generar video" : "Generar character swap";
+  renderPeople();
+  refresh();
+}
+document.querySelectorAll("input[name=task]").forEach(r => r.addEventListener("change", applyTask));
 document.querySelectorAll("input[name=method]").forEach(r => r.addEventListener("change", () => {
-  $("pretrainedBox").hidden = method() !== "pretrained";
-  $("encoderBox").hidden = method() !== "encoder";
+  $("pretrainedBox").hidden = radio("method") !== "pretrained";
+  $("encoderBox").hidden = radio("method") !== "encoder";
 }));
 $("minutes").addEventListener("input", () => $("minutesLabel").textContent = `${$("minutes").value} min`);
+$("duration").addEventListener("input", limitDuration);
+consent.addEventListener("change", refresh);
 
-function refresh() { go.disabled = !(source.files[0] && video.files[0] && consent.checked); }
-
-fetch("/api/models").then(r => r.json()).then(({ pretrained }) => {
+const RUNS = { local: "en esta GPU", cloud: "nube (fal.ai)", external: "GPU externa ≥ 48 GB",
+               hf_space: "sin descarga · Space de Hugging Face" };
+fetch("/api/models").then(r => r.json()).then(({ pretrained, character }) => {
   $("models").innerHTML = pretrained.map((m, i) => `
     <label class="choice"><input type="radio" name="model" value="${m.key}" ${i === 0 ? "checked" : ""}>
       <b>${m.label}</b><p>${m.summary}</p>
       <div class="tags"><span class="tag">calidad ${m.quality}</span><span class="tag">velocidad ${m.speed}</span>
         <span class="tag">${m.license}</span>${m.downloaded ? "" : '<span class="tag">se descarga al usarlo</span>'}</div>
     </label>`).join("");
+  charCatalog = character;
+  $("charModels").innerHTML = character.map((m, i) => `
+    <label class="choice ${m.available ? "" : "off"}"><input type="radio" name="charModel" value="${m.key}" ${i === 0 ? "checked" : ""}>
+      <b>${m.label}</b><p>${m.summary}</p>
+      <div class="tags"><span class="tag">${RUNS[m.runs]}</span><span class="tag">calidad ${m.quality}</span>
+        <span class="tag">${m.speed}</span><span class="tag">${m.license}</span>
+        ${m.note ? `<span class="tag ${m.available ? "" : "bad"}">${m.note}</span>` : ""}</div>
+    </label>`).join("");
+  document.querySelectorAll("input[name=charModel]").forEach(r => r.addEventListener("change", () => { limitDuration(); refresh(); }));
+  limitDuration();
+  refresh();
 });
 
+function limitDuration() {   // cada modelo admite un tramo máximo (el Space gratuito, 20 s)
+  const m = charCatalog.find(c => c.key === radio("charModel"));
+  if (!m) return;
+  $("duration").max = m.max_seconds;
+  if (+$("duration").value > m.max_seconds) $("duration").value = m.max_seconds;
+  $("durLabel").textContent = `${$("duration").value} s (máx. ${m.max_seconds} s)`;
+  $("hfTokenBox").hidden = m.runs !== "hf_space";
+}
+
+function refresh() {
+  const sel = selected();
+  let why = "";
+  if (!source.files[0]) why = "Falta la foto/video de la persona autorizada.";
+  else if (!scan) why = "Falta el video destino (o su escaneo).";
+  else if (!sel.length) why = "Selecciona a quién cambiar.";
+  else if (task() === "character") {
+    const m = charCatalog.find(c => c.key === radio("charModel"));
+    if (m && !m.available) why = `${m.label}: ${m.note}`;
+  }
+  if (!why && !consent.checked) why = "Confirma la autorización de todas las personas.";
+  go.disabled = !!why;
+  $("goHint").textContent = why;
+}
+
+// ------------------------------------------------------------------ trabajo
 go.addEventListener("click", async () => {
   go.disabled = true;
   $("result").innerHTML = "";
   $("progressBox").hidden = false;
   $("bar").style.width = "0";
   $("phase").textContent = "Subiendo archivos…";
-  setStatus("");
+  setText("status", "");
 
   const fd = new FormData();
   fd.append("source", source.files[0]);
-  fd.append("video", video.files[0]);
-  fd.append("method", method());
-  fd.append("model", document.querySelector("input[name=model]:checked")?.value || "hyperswap_1a_256");
+  fd.append("scan_id", scan.scan_id);
+  fd.append("targets", selected().join(","));
+  fd.append("task", task());
+  fd.append("method", radio("method"));
+  fd.append("model", radio("model") || "hyperswap_1a_256");
   fd.append("train_minutes", $("minutes").value);
-  fd.append("mode", $("mode").value);
-  for (const k of ["occlusion", "region", "color", "smooth", "consent"]) fd.append(k, $(k).checked);
+  fd.append("char_model", radio("charModel") || "wan_animate_space");
+  fd.append("prompt", $("prompt").value);
+  fd.append("start", $("start").value || 0);
+  fd.append("duration", $("duration").value);
+  if (task() === "character" && radio("charModel") === "wan_animate_space") fd.append("hf_token", $("hfToken").value);
+  for (const k of ["occlusion", "region", "color", "smooth", "turbo", "hq", "consent"]) fd.append(k, $(k).checked);
 
   try {
     const r = await fetch("/api/jobs", { method: "POST", body: fd });
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || "Error al crear el trabajo");
+    store.set(data.id);
     poll(data.id);
-  } catch (e) { setStatus(e.message, true); refresh(); }
+  } catch (e) { setText("status", e.message, true); refresh(); }
 });
 
-function setStatus(text, isError = false) {
-  $("status").textContent = text;
-  $("status").className = isError ? "error" : "";
+function setText(id, text, isError = false) {
+  $(id).textContent = text;
+  $(id).className = isError ? "error" : "";
 }
 
+// Sigue el trabajo. Si el servidor no responde, NO se rinde: reintenta cada pocos segundos y, cuando
+// vuelve, el trabajo aparece como "interrumpido" (si el servidor se reinició) con opción de reanudar.
+let pollingId = null, lostSince = null;
+function watch(id) {
+  pollingId = id; lostSince = null;
+  $("progressBox").hidden = false;
+  $("result").innerHTML = "";
+  go.disabled = true;
+  poll(id);
+}
 async function poll(id) {
-  let job;
-  try { job = await (await fetch(`/api/jobs/${id}`)).json(); }
-  catch { setStatus("Se perdió la conexión con el servidor.", true); refresh(); return; }
+  pollingId = id;
+  let r, job;
+  try { r = await fetch(`/api/jobs/${id}`); job = await r.json(); }
+  catch {
+    lostSince ??= Date.now();
+    const s = Math.round((Date.now() - lostSince) / 1000);
+    setText("status", `Se perdió la conexión con el servidor. Reintentando… (${s} s)`, true);
+    setTimeout(() => poll(id), 3000);
+    return;
+  }
+  lostSince = null;
+  if (!r.ok) {   // el servidor ya no conoce este trabajo
+    store.set(null); pollingId = null;
+    setText("status", job.detail || "Trabajo no encontrado.", true); refresh(); return;
+  }
   $("bar").style.width = `${Math.round((job.progress || 0) * 100)}%`;
   $("phase").textContent = PHASES[job.status] || job.status;
-  setStatus(job.message || "", job.status === "error");
+  setText("status", job.message || "", job.status === "error");
+  showPartial(job);
   if (job.status === "done") {
+    store.set(null); pollingId = null;
     const url = `/api/jobs/${id}/result`;
     $("result").innerHTML = `<video src="${url}" controls autoplay></video><p><a href="${url}" download>Descargar video</a></p>`;
-    refresh();
-  } else if (job.status === "error") {
-    refresh();
-  } else {
+    $("partialLink").hidden = true;
+    refresh(); loadPending();
+  } else if (RUNNING.has(job.status)) {
     setTimeout(() => poll(id), 1000);
+  } else {   // error o interrumpido: se ofrece reanudar desde la tarjeta de trabajos interrumpidos
+    store.set(null); pollingId = null;
+    refresh(); loadPending();
   }
 }
+
+function showPartial(job) {
+  const box = $("partialLink");
+  box.hidden = !job.parts;
+  if (job.parts) {
+    box.innerHTML = `<a href="/api/jobs/${job.id}/partial" download>Descargar lo generado hasta ahora</a>
+      · ${job.done_frames} frames en ${job.parts} tramo(s)`;
+  }
+}
+
+// ------------------------------------------------------------------ trabajos interrumpidos
+function describe(job) {
+  const p = job.params || {};
+  const what = p.task === "character" ? "Character swap"
+    : `Face swap · ${p.method === "encoder" ? `encoder (${p.train_minutes} min)` : p.model}`;
+  const when = job.created ? new Date(job.created * 1000).toLocaleString() : "";
+  const pct = job.total_frames ? ` · ${Math.round(job.done_frames / job.total_frames * 100)} %` : "";
+  return `<b>${what}</b>${pct}<small>${when ? when + " · " : ""}${job.message || ""}</small>`;
+}
+
+async function loadPending() {
+  let list = [];
+  try { list = await (await fetch("/api/jobs")).json(); } catch { return; }
+  const pending = list.filter(j => (j.status === "interrupted" || j.status === "error") && j.id !== pollingId
+                                   && (j.parts || j.status === "interrupted"));
+  $("resumeCard").hidden = !pending.length;
+  $("pendingJobs").innerHTML = pending.map(j => `
+    <div class="pending-job" data-id="${j.id}">
+      <div class="info">${describe(j)}</div>
+      <div class="actions">
+        ${j.resumable ? `<button class="small" data-act="resume">Reanudar</button>` : ""}
+        ${j.parts ? `<a class="small" href="/api/jobs/${j.id}/partial" download>Descargar lo generado</a>` : ""}
+        <button class="small ghost" data-act="discard">Descartar</button>
+      </div>
+    </div>`).join("");
+  // si se recargó la página con un trabajo en marcha, se vuelve a seguir
+  const active = store.get();
+  if (!pollingId && active && list.some(j => j.id === active && RUNNING.has(j.status))) watch(active);
+}
+
+$("pendingJobs").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.closest(".pending-job").dataset.id;
+  btn.disabled = true;
+  if (btn.dataset.act === "discard") {
+    if (!confirm("¿Descartar este trabajo? Se borra lo generado hasta ahora.")) { btn.disabled = false; return; }
+    await fetch(`/api/jobs/${id}`, { method: "DELETE" }).catch(() => {});
+    loadPending();
+    return;
+  }
+  try {
+    const r = await fetch(`/api/jobs/${id}/resume`, { method: "POST" });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "No se pudo reanudar");
+    store.set(id);
+    watch(id);
+    loadPending();
+    $("progressBox").scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (err) { alert(err.message); btn.disabled = false; }
+});
 
 fetch("/api/health").then(r => r.json()).then(h => {
   const gpu = h.providers.includes("CUDAExecutionProvider");
   $("health").innerHTML = `GPU: <b class="${gpu ? "ok" : "bad"}">${gpu ? "CUDA activo" : "no (CPU, será lento)"}</b>`;
 }).catch(() => { $("health").textContent = "No se pudo contactar al servidor."; });
+
+applyTask();
+loadPending();
 </script>
 </body>
 </html>
