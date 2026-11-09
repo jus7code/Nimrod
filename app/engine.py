@@ -121,6 +121,7 @@ class Detection:
     bbox: np.ndarray  # x1, y1, x2, y2
     kps: np.ndarray   # 5×2
     score: float
+    target: int = 0   # índice de la persona elegida en el escaneo a la que corresponde (TargetMatcher)
 
     @property
     def size(self) -> float:
@@ -354,7 +355,8 @@ class PipelineOptions:
 def swap_frame(frame, faces, swapper: Swapper, masker: Masker, opts: PipelineOptions) -> np.ndarray:
     for det in faces:
         crop, M = warp_face(frame, det.kps, swapper.template, swapper.size)
-        fake = swapper.swap(crop)
+        # con varias fuentes, cada persona elegida se cambia por la fuente que se le asignó
+        fake = swapper.swap(crop, det.target) if getattr(swapper, "multi", False) else swapper.swap(crop)
         mask = masker.build(crop, fake, getattr(swapper, "region_on_original", False))
         if opts.color:
             fake = color_transfer(fake, crop, mask)

@@ -94,6 +94,51 @@
   #resumeCard { border-color: var(--warn); }
   #partialLink { font-size: 13px; margin-top: 6px; }
   #partialLink a { color: var(--accent); }
+  .sources { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-top: 10px; }
+  .src { border: 1px solid var(--border); border-radius: 8px; padding: 6px; position: relative; font-size: 12px; }
+  .src img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; display: block; background: var(--border); }
+  .src b { display: block; margin-top: 4px; }
+  .src small { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .src small.err { color: var(--error); white-space: normal; }
+  .src button { position: absolute; top: 4px; right: 4px; padding: 0 7px; font-size: 14px; line-height: 22px;
+                border-radius: 99px; background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  .src .chip { position: absolute; top: 4px; left: 4px; background: var(--accent); color: var(--accent-text);
+               border-radius: 99px; font-size: 11px; font-weight: 700; padding: 0 7px; line-height: 20px; }
+  .drop.compact { min-height: 64px; }
+  .person select { width: 100%; margin-top: 6px; padding: 5px; border-radius: 6px; border: 1px solid var(--border);
+                   background: var(--card); color: var(--text); font: inherit; font-size: 13px; }
+  .person.on { border-color: var(--accent); background: var(--accent-soft); }
+  .person { cursor: default; }
+  #finderCard { border-color: var(--accent); }
+  #finderSummary { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  #finderSummary.error { color: var(--error); }
+  .finder-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .finder-row .field { flex: 1 1 320px; }
+  .pick { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 12px; }
+  .pick label { display: flex; align-items: center; gap: 6px; border: 1.5px solid var(--border); border-radius: 99px;
+                padding: 3px 10px 3px 3px; cursor: pointer; font-size: 13px; }
+  .pick label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .pick img { width: 28px; height: 28px; border-radius: 99px; object-fit: cover; }
+  .pick input { display: none; }
+  .scrapes { font-size: 13px; margin-top: 10px; }
+  .scrapes .s { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
+  .scrapes .s:first-child { border-top: 0; }
+  .scrapes .s .u { flex: 1; min-width: 0; }
+  .scrapes .s .u small { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scrapes .s .u small.err { color: var(--error); white-space: normal; }
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-top: 12px; }
+  .res { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .res a.pic { position: relative; display: block; aspect-ratio: 16/10; background: var(--border); }
+  .res a.pic img.th { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .res a.pic img.fc { position: absolute; right: 6px; bottom: 6px; width: 52px; height: 52px; border-radius: 8px;
+                      border: 2px solid var(--card); object-fit: cover; }
+  .res .body { padding: 8px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+  .res .body b { font-size: 13px; }
+  .res .body .t { color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .res .body a.lnk { color: var(--accent); word-break: break-all; overflow: hidden; display: -webkit-box;
+                     -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .meter { height: 5px; border-radius: 99px; background: var(--border); overflow: hidden; }
+  .meter > div { height: 100%; background: var(--accent); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -124,11 +169,12 @@
 
   <div class="grid">
     <div class="card">
-      <h2>1. Persona autorizada (fuente)</h2>
+      <h2>1. Personas autorizadas (fuentes)</h2>
       <label class="drop" id="sourceDrop">
-        <span>Haz clic o arrastra una <b>foto</b> o un <b>video corto</b> de la persona autorizada</span>
-        <input type="file" id="source" accept="image/*,video/*">
+        <span>Haz clic o arrastra una o varias <b>fotos</b> o <b>videos cortos</b> — uno por persona autorizada</span>
+        <input type="file" id="source" accept="image/*,video/*" multiple>
       </label>
+      <div class="sources" id="sources"></div>
       <p class="hint" id="sourceHint"></p>
     </div>
     <div class="card">
@@ -137,15 +183,46 @@
         <span>Haz clic o arrastra el video donde se hará el cambio</span>
         <input type="file" id="video" accept="video/*">
       </label>
-      <p class="hint">Al subirlo se escanea automáticamente para detectar los rostros.</p>
+      <p class="hint">Al subirlo se escanea automáticamente para detectar los rostros.
+        <button class="link" id="openFinder">¿No tienes video destino? Buscar videos sugeridos</button></p>
     </div>
+  </div>
+
+  <div class="card" id="finderCard" hidden>
+    <div class="scanhead">
+      <h2>Videos sugeridos (buscar personas parecidas en una página)</h2>
+      <button class="link" id="closeFinder">Cerrar</button>
+    </div>
+    <p class="hint" style="margin:0 0 10px">1) Pega el enlace de una página con muchos videos: se analizan los rostros de sus miniaturas
+      y se guardan. 2) Se buscan los videos cuyas personas tienen rasgos faciales parecidos a la fuente elegida.
+      Abre el enlace, descarga el video (si el sitio y su licencia lo permiten) y súbelo en el paso 2.</p>
+    <div class="field">Buscar parecidos a:</div>
+    <div class="pick" id="finderModels"><span class="hint">Primero sube al menos una fuente en el paso 1.</span></div>
+    <div class="finder-row">
+      <label class="field">Enlace de la página con videos
+        <input type="text" id="finderUrl" placeholder="https://…" inputmode="url"></label>
+      <label class="field" style="flex:0 0 120px">Páginas a recorrer
+        <input type="number" id="finderPages" min="1" max="10" value="1"></label>
+      <button id="finderGo">Analizar y buscar</button>
+    </div>
+    <label class="row" style="margin-top:8px"><input type="checkbox" id="finderDeep">
+      <span>Analizar a fondo<small>Visita también cada página de video para sacar más fotos de la persona (más lento, más preciso)</small></span></label>
+    <div id="finderProgress" hidden><div class="bar"><div id="finderBar"></div></div><div class="hint" id="finderStatus"></div></div>
+    <div class="scrapes" id="scrapes"></div>
+    <div class="scanhead" style="margin-top:12px">
+      <label class="row" style="align-items:center;font-size:14px">Parecido mínimo:
+        <input type="range" id="finderMin" min="0" max="60" step="1" value="18"> <b id="finderMinLabel">18 %</b></label>
+      <button class="link" id="finderSearchAll">Buscar en todas las páginas analizadas</button>
+    </div>
+    <div class="hint" id="finderSummary"></div>
+    <div class="results" id="finderResults"></div>
   </div>
 
   <div class="card" id="scanCard">
     <div class="scanhead">
       <h2 id="scanTitle">3. ¿A quién se cambia?</h2>
       <span>
-        <button class="link" id="selectAll" hidden>Seleccionar todas</button>
+        <button class="link" id="selectAll" hidden>Asignar la fuente 1 a todas</button>
         <button class="link" id="showMore" hidden></button>
       </span>
     </div>
@@ -217,7 +294,7 @@
     <h2>Verificación de autorización</h2>
     <label class="row">
       <input type="checkbox" id="consent">
-      <span>Confirmo que <b>todas las personas involucradas</b> — la persona autorizada de la fuente y las personas
+      <span>Confirmo que <b>todas las personas involucradas</b> — las personas autorizadas de las fuentes y las personas
         seleccionadas del video destino — han dado su consentimiento informado para este uso, y que el resultado no se
         presentará como real.</span>
     </label>
@@ -249,6 +326,9 @@ const store = {   // id del trabajo en curso, para retomarlo si se recarga la p�
   set(id) { try { id ? localStorage.setItem("activeJob", id) : localStorage.removeItem("activeJob"); } catch {} },
 };
 let scan = null, showAll = false, charCatalog = [];
+let srcs = [];               // fuentes: {key, id?, name, thumb, error?, pending}
+const mapping = new Map();   // persona del escaneo -> id de la fuente que la reemplaza
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 function preview(input, drop, onFile) {
   const setFile = (file) => {
@@ -267,12 +347,60 @@ function preview(input, drop, onFile) {
   drop.addEventListener("dragover", (e) => e.preventDefault());
   drop.addEventListener("drop", (e) => { e.preventDefault(); setFile(e.dataTransfer.files[0]); });
 }
-preview(source, $("sourceDrop"));
 preview(video, $("videoDrop"), runScan);
+
+// ------------------------------------------------------------------ fuentes (una o varias)
+const readySrcs = () => srcs.filter(x => x.id);
+const srcLabel = (id) => { const i = readySrcs().findIndex(x => x.id === id); return i < 0 ? "?" : `Fuente ${i + 1}`; };
+async function addSources(files) {
+  files = [...files].filter(f => f.type.startsWith("image") || f.type.startsWith("video"));
+  if (!files.length) return;
+  const added = files.map(f => ({ key: Math.random().toString(36).slice(2), name: f.name, thumb: "", pending: true,
+                                  local: f.type.startsWith("image") ? URL.createObjectURL(f) : "" }));
+  srcs.push(...added);
+  renderSources();
+  const fd = new FormData();
+  files.forEach(f => fd.append("files", f));
+  try {
+    const r = await fetch("/api/sources", { method: "POST", body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "Error al subir las fuentes");
+    data.forEach((d, i) => Object.assign(added[i], d, { pending: false }));
+  } catch (e) { added.forEach(a => Object.assign(a, { pending: false, error: e.message })); }
+  // por defecto, la persona que más aparece en el video recibe la primera fuente
+  if (scan && mapping.size === 0 && readySrcs().length) {
+    const first = scan.people.find(p => p.count >= 2) || scan.people[0];
+    if (first) mapping.set(first.id, readySrcs()[0].id);
+  }
+  renderSources(); renderPeople(); renderFinderModels(); refresh();
+}
+function renderSources() {
+  let n = 0;
+  $("sources").innerHTML = srcs.map(x => {
+    const label = x.id ? `Fuente ${++n}` : x.pending ? "Analizando…" : "Sin cara";
+    return `<div class="src" data-key="${x.key}">
+      ${x.id ? `<span class="chip">${n}</span>` : ""}
+      <img src="${x.thumb || x.local || ""}" alt="">
+      <button title="Quitar" data-del="${x.key}">×</button>
+      <b>${label}</b>
+      <small class="${x.error ? "err" : ""}" title="${esc(x.name)}">${esc(x.error || x.name)}</small></div>`;
+  }).join("");
+}
+$("sources").addEventListener("click", (e) => {
+  const key = e.target.closest("[data-del]")?.dataset.del;
+  if (!key) return;
+  const gone = srcs.find(x => x.key === key);
+  srcs = srcs.filter(x => x.key !== key);
+  for (const [pid, sid] of [...mapping]) if (sid === gone?.id) mapping.delete(pid);
+  renderSources(); renderPeople(); renderFinderModels(); refresh();
+});
+source.addEventListener("change", () => { addSources(source.files); source.value = ""; });
+$("sourceDrop").addEventListener("dragover", (e) => e.preventDefault());
+$("sourceDrop").addEventListener("drop", (e) => { e.preventDefault(); addSources(e.dataTransfer.files); });
 
 // ------------------------------------------------------------------ escaneo y selección
 async function runScan(file) {
-  scan = null; showAll = false;
+  scan = null; showAll = false; mapping.clear();
   $("people").innerHTML = "";
   $("selectAll").hidden = $("showMore").hidden = true;
   setText("scanStatus", "Escaneando rostros (≈2 frames/s)… la primera vez también se cargan los modelos.");
@@ -282,6 +410,8 @@ async function runScan(file) {
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || "Error al escanear");
     scan = data;
+    const first = data.people.find(p => p.count >= 2) || data.people[0];
+    if (first && readySrcs().length) mapping.set(first.id, readySrcs()[0].id);
     const i = data.info;
     $("start").max = Math.max(0, Math.floor(i.duration - 1));
     setText("scanStatus", data.people.length
@@ -296,29 +426,44 @@ async function runScan(file) {
 function renderPeople() {
   if (!scan) return;
   const multi = task() === "face";
-  const checked = new Set([...document.querySelectorAll("input[name=person]:checked")].map(x => +x.value));
+  const ready = readySrcs();
+  for (const [pid, sid] of [...mapping]) if (!ready.some(x => x.id === sid)) mapping.delete(pid);
+  if (!multi && mapping.size > 1) { const [k, v] = [...mapping][0]; mapping.clear(); mapping.set(k, v); }
   const frequent = scan.people.filter(p => p.count >= 2);
   const list = showAll || frequent.length === 0 ? scan.people : frequent;
   const hidden = scan.people.length - list.length;
-  if (checked.size === 0 && list.length) checked.add(list[0].id);   // por defecto: la que más aparece
-  if (!multi && checked.size > 1) { const first = [...checked][0]; checked.clear(); checked.add(first); }
+  const opts = (pid) => `<option value="">— No cambiar —</option>` + ready.map((x, i) =>
+    `<option value="${x.id}" ${mapping.get(pid) === x.id ? "selected" : ""}>Reemplazar por Fuente ${i + 1}</option>`).join("");
   $("people").innerHTML = list.map(p => `
-    <label class="person"><input type="${multi ? "checkbox" : "radio"}" name="person" value="${p.id}" ${checked.has(p.id) ? "checked" : ""}>
+    <div class="person ${mapping.has(p.id) ? "on" : ""}">
       <img class="face" src="${p.thumb}" alt="Persona ${p.id + 1}">
       <img class="ctx" src="${p.context}" alt="">
       <small><b>Persona ${p.id + 1}</b> · en ${Math.round(p.share * 100)} % del video · desde ${p.first_t.toFixed(1)} s</small>
-    </label>`).join("");
-  document.querySelectorAll("input[name=person]").forEach(x => x.addEventListener("change", refresh));
-  $("selectAll").hidden = !multi || list.length < 2;
+      ${ready.length ? `<select data-person="${p.id}">${opts(p.id)}</select>` : `<small>Sube una fuente en el paso 1 para asignarla.</small>`}
+    </div>`).join("");
+  document.querySelectorAll("select[data-person]").forEach(x => x.addEventListener("change", () => {
+    const pid = +x.dataset.person;
+    if (x.value) {
+      if (!multi) mapping.clear();   // character swap: una sola persona
+      mapping.set(pid, x.value);
+    } else mapping.delete(pid);
+    renderPeople(); refresh();
+  }));
+  $("selectAll").hidden = !multi || list.length < 2 || !ready.length;
   $("showMore").hidden = hidden === 0 && !showAll;
   $("showMore").textContent = showAll ? "Ocultar apariciones breves" : `Mostrar ${hidden} más (apariciones breves)`;
-  $("scanTitle").textContent = multi ? "3. ¿A quién se cambia? (una o varias caras)" : "3. ¿A quién se cambia? (una persona)";
+  $("scanTitle").textContent = multi
+    ? "3. ¿A quién se cambia y por quién? (una o varias caras)"
+    : "3. ¿A quién se cambia? (una persona, por una fuente)";
 }
 $("showMore").addEventListener("click", () => { showAll = !showAll; renderPeople(); refresh(); });
 $("selectAll").addEventListener("click", () => {
-  document.querySelectorAll("input[name=person]").forEach(x => x.checked = true); refresh();
+  const first = readySrcs()[0];
+  if (!first) return;
+  document.querySelectorAll("select[data-person]").forEach(x => mapping.set(+x.dataset.person, first.id));
+  renderPeople(); refresh();
 });
-const selected = () => [...document.querySelectorAll("input[name=person]:checked")].map(x => x.value);
+const selected = () => [...mapping].map(([pid, sid]) => `${pid}:${sid}`);
 
 // ------------------------------------------------------------------ modo y modelos
 function applyTask() {
@@ -327,8 +472,8 @@ function applyTask() {
   $("charBox").hidden = face;
   $("integrationCard").hidden = !face;
   $("sourceHint").textContent = face
-    ? "Un video de la fuente (10–60 s girando la cabeza) da una identidad más estable que una sola foto."
-    : "Ideal: foto de cuerpo entero, de frente, bien iluminada, con la ropa que quieres que aparezca (p. ej. traje y corbata). Si subes un video se elige el mejor frame.";
+    ? "Sube un archivo por persona. Un video de cada fuente (10–60 s girando la cabeza) da una identidad más estable que una sola foto. En el paso 3 eliges qué fuente reemplaza a cada persona del video."
+    : "Ideal: foto de cuerpo entero, de frente, bien iluminada, con la ropa que quieres que aparezca (p. ej. traje y corbata). Si subes un video se elige el mejor frame. Se usa la fuente que asignes a la persona elegida.";
   go.textContent = face ? "Generar video" : "Generar character swap";
   renderPeople();
   refresh();
@@ -337,6 +482,7 @@ document.querySelectorAll("input[name=task]").forEach(r => r.addEventListener("c
 document.querySelectorAll("input[name=method]").forEach(r => r.addEventListener("change", () => {
   $("pretrainedBox").hidden = radio("method") !== "pretrained";
   $("encoderBox").hidden = radio("method") !== "encoder";
+  refresh();
 }));
 $("minutes").addEventListener("input", () => $("minutesLabel").textContent = `${$("minutes").value} min`);
 $("duration").addEventListener("input", limitDuration);
@@ -376,9 +522,12 @@ function limitDuration() {   // cada modelo admite un tramo máximo (el Space gr
 function refresh() {
   const sel = selected();
   let why = "";
-  if (!source.files[0]) why = "Falta la foto/video de la persona autorizada.";
+  if (srcs.some(x => x.pending)) why = "Analizando las fuentes…";
+  else if (!readySrcs().length) why = "Falta la foto/video de al menos una persona autorizada.";
   else if (!scan) why = "Falta el video destino (o su escaneo).";
-  else if (!sel.length) why = "Selecciona a quién cambiar.";
+  else if (!sel.length) why = "Asigna una fuente a al menos una persona del video.";
+  else if (task() === "face" && radio("method") === "encoder" && new Set(mapping.values()).size > 1)
+    why = "El encoder propio solo admite una fuente: asigna la misma a todas o usa un modelo pre-entrenado.";
   else if (task() === "character") {
     const m = charCatalog.find(c => c.key === radio("charModel"));
     if (m && !m.available) why = `${m.label}: ${m.note}`;
@@ -398,7 +547,6 @@ go.addEventListener("click", async () => {
   setText("status", "");
 
   const fd = new FormData();
-  fd.append("source", source.files[0]);
   fd.append("scan_id", scan.scan_id);
   fd.append("targets", selected().join(","));
   fd.append("task", task());
@@ -530,6 +678,119 @@ $("pendingJobs").addEventListener("click", async (e) => {
     $("progressBox").scrollIntoView({ behavior: "smooth", block: "center" });
   } catch (err) { alert(err.message); btn.disabled = false; }
 });
+
+// ------------------------------------------------------------------ videos sugeridos (buscador)
+let finderResults = [], finderScope = null, finderTimer = null;
+const finderPicked = new Set();
+$("openFinder").addEventListener("click", () => {
+  $("finderCard").hidden = false; renderFinderModels(); loadScrapes();
+  $("finderCard").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("closeFinder").addEventListener("click", () => { $("finderCard").hidden = true; });
+
+function renderFinderModels() {
+  const ready = readySrcs();
+  for (const id of [...finderPicked]) if (!ready.some(x => x.id === id)) finderPicked.delete(id);
+  if (!finderPicked.size && ready[0]) finderPicked.add(ready[0].id);
+  $("finderModels").innerHTML = ready.length ? ready.map((x, i) => `
+    <label><input type="checkbox" value="${x.id}" ${finderPicked.has(x.id) ? "checked" : ""}>
+      <img src="${x.thumb}" alt="">Fuente ${i + 1}</label>`).join("")
+    : `<span class="hint">Primero sube al menos una fuente en el paso 1.</span>`;
+  $("finderModels").querySelectorAll("input").forEach(x => x.addEventListener("change", () => {
+    x.checked ? finderPicked.add(x.value) : finderPicked.delete(x.value);
+    if (finderResults.length || finderScope) runSimilar(finderScope);
+  }));
+}
+
+async function loadScrapes() {
+  let list = [];
+  try { list = await (await fetch("/api/scrapes")).json(); } catch { return; }
+  $("scrapes").innerHTML = list.length ? `<div class="field" style="margin-bottom:4px">Páginas analizadas</div>` + list.map(x => `
+    <div class="s" data-id="${x.id}">
+      <div class="u"><b>${esc(x.title || x.url)}</b>
+        <small class="${x.status === "error" ? "err" : ""}">${esc(x.url)} · ${esc(x.message || "")}</small></div>
+      ${x.status === "done" ? `<button class="small ghost" data-act="search">Buscar aquí</button>` : ""}
+      ${["done", "error"].includes(x.status) ? `<button class="small ghost" data-act="del">Borrar</button>` : ""}
+    </div>`).join("") : "";
+}
+$("scrapes").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.closest(".s").dataset.id;
+  if (btn.dataset.act === "search") return runSimilar([id]);
+  if (!confirm("¿Borrar este análisis del índice?")) return;
+  await fetch(`/api/scrapes/${id}`, { method: "DELETE" }).catch(() => {});
+  loadScrapes();
+});
+
+$("finderGo").addEventListener("click", async () => {
+  const url = $("finderUrl").value.trim();
+  if (!finderPicked.size) return setText("finderSummary", "Elige al menos una fuente para buscar parecidos.", true);
+  if (!/^https?:\/\/.+/i.test(url)) return setText("finderSummary", "Introduce un enlace completo (https://…).", true);
+  $("finderGo").disabled = true;
+  setText("finderSummary", "");
+  try {
+    const r = await fetch("/api/scrapes", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, deep: $("finderDeep").checked, max_pages: +$("finderPages").value || 1 }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "No se pudo iniciar el análisis");
+    $("finderProgress").hidden = false;
+    pollScrape(data.id);
+  } catch (e) { setText("finderSummary", e.message, true); $("finderGo").disabled = false; }
+});
+
+async function pollScrape(id) {
+  clearTimeout(finderTimer);
+  let x;
+  try { const r = await fetch(`/api/scrapes/${id}`); x = await r.json(); if (!r.ok) throw new Error(x.detail); }
+  catch { finderTimer = setTimeout(() => pollScrape(id), 2000); return; }
+  $("finderBar").style.width = `${Math.round((x.progress || 0) * 100)}%`;
+  $("finderStatus").textContent = `${x.message || ""}${x.n_faces ? ` · ${x.n_faces} rostros` : ""}`;
+  if (x.status === "queued" || x.status === "running") { finderTimer = setTimeout(() => pollScrape(id), 1000); return; }
+  $("finderGo").disabled = false;
+  $("finderProgress").hidden = true;
+  loadScrapes();
+  if (x.status === "error") return setText("finderSummary", x.message, true);
+  runSimilar([id]);
+}
+
+async function runSimilar(scope) {
+  finderScope = scope;
+  if (!finderPicked.size) return setText("finderSummary", "Elige al menos una fuente para buscar parecidos.", true);
+  setText("finderSummary", "Buscando parecidos…");
+  try {
+    const r = await fetch("/api/similar", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_ids: [...finderPicked], scrape_ids: scope, min_sim: 0, limit: 300 }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "Error al buscar");
+    finderResults = data;
+    renderResults();
+  } catch (e) { setText("finderSummary", e.message, true); }
+}
+
+function renderResults() {
+  const min = +$("finderMin").value / 100;
+  $("finderMinLabel").textContent = `${$("finderMin").value} %`;
+  const list = finderResults.filter(x => x.similarity >= min);
+  setText("finderSummary", finderResults.length
+    ? `${list.length} video(s) sugeridos de ${finderResults.length} con rostros. ` +
+      `Referencia: ≥ 40 % suele ser la misma persona; 20–40 %, rasgos parecidos. Haz clic en la foto para ir al video.`
+    : "No se encontraron rostros en las miniaturas analizadas.");
+  $("finderResults").innerHTML = list.map(x => {
+    const href = esc(x.link), pct = Math.round(x.similarity * 100);
+    return `<div class="res">
+      <a class="pic" href="${href}" target="_blank" rel="noopener noreferrer" title="Abrir el video">
+        ${x.thumb ? `<img class="th" src="${x.thumb}" alt="">` : ""}<img class="fc" src="${x.face}" alt="Rostro encontrado"></a>
+      <div class="body">
+        <b>${pct} % parecido a ${srcLabel(x.source_id)}</b>
+        <div class="meter"><div style="width:${Math.min(100, pct / 0.6)}%"></div></div>
+        ${x.title ? `<span class="t">${esc(x.title)}</span>` : ""}
+        <a class="lnk" href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>
+      </div></div>`;
+  }).join("");
+}
+$("finderMin").addEventListener("input", renderResults);
+$("finderSearchAll").addEventListener("click", () => runSimilar(null));
 
 fetch("/api/health").then(r => r.json()).then(h => {
   const gpu = h.providers.includes("CUDAExecutionProvider");

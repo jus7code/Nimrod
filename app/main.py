@@ -2,6 +2,7 @@
 API web (FastAPI) del laboratorio de face swap / character swap.
 
     GET  /api/models            -> catálogo de modelos (face swap y character swap)
+    POST /api/sources           -> sube una o varias fuentes (personas autorizadas) y detecta su cara
     POST /api/scan              -> sube el video destino, detecta y agrupa los rostros (para elegir a quién cambiar)
     POST /api/jobs              -> sube la fuente y crea un trabajo sobre un video escaneado
     GET  /api/jobs              -> lista de trabajos (incluye los interrumpidos)
@@ -11,6 +12,13 @@ API web (FastAPI) del laboratorio de face swap / character swap.
     POST /api/jobs/{id}/resume  -> reanuda un trabajo interrumpido
     DELETE /api/jobs/{id}       -> descarta un trabajo que no está en marcha
     GET  /api/health            -> GPU / estado
+
+    Buscador de videos sugeridos (app/scraper.py):
+    POST /api/scrapes           -> analiza una página web: rostros de las miniaturas de sus videos
+    GET  /api/scrapes           -> páginas ya analizadas (índice de rostros guardado en data/scrape)
+    GET  /api/scrapes/{id}      -> progreso de un análisis
+    DELETE /api/scrapes/{id}    -> borra un análisis del índice
+    POST /api/similar           -> videos del índice cuyos rostros se parecen a las fuentes elegidas
 
 Cada trabajo guarda su estado en data/work/<id>/job.json y el face swap escribe el video en
 tramos de ~10 s (engine.SegmentWriter). Si el servidor se cae a mitad, al volver a arrancar el
@@ -30,7 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -44,6 +52,7 @@ UPLOADS = BASE_DIR / "data" / "uploads"
 OUTPUTS = BASE_DIR / "data" / "outputs"
 ENCODER_CKPTS = BASE_DIR / "data" / "encoder_models"
 WORK = BASE_DIR / "data" / "work"
+SCRAPE = BASE_DIR / "data" / "scrape"
 for d in (UPLOADS, OUTPUTS, WORK):
     d.mkdir(parents=True, exist_ok=True)
 
@@ -55,6 +64,8 @@ jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 scans: OrderedDict[str, dict] = OrderedDict()  # scan_id -> {"video": Path, "people": [... con embedding]}
 MAX_SCANS = 20
+sources: OrderedDict[str, dict] = OrderedDict()  # source_id -> {"path", "embedding" (normalizado), "thumb", "name"}
+MAX_SOURCES = 50
 
 _engine: FaceEngine | None = None
 _engine_lock = threading.Lock()
@@ -116,6 +127,12 @@ def update_job(job_id: str, persist: bool = False, **fields) -> None:
         save_job(job_id)
 
 
+def job_sources(job: dict) -> list[str]:
+    """Rutas de las fuentes de un trabajo (los trabajos antiguos guardaban una sola, en "source")."""
+    st = job.get("_", {})
+    return list(st.get("sources") or ([st["source"]] if st.get("source") else [""]))
+
+
 def load_jobs() -> None:
     """Al arrancar: recupera los trabajos guardados. Los que estaban en marcha cuando se cayó el
     servidor quedan como "interrupted" (reanudables)."""
@@ -140,14 +157,14 @@ def load_jobs() -> None:
             else:
                 msg = "Interrumpido antes de generar ningún frame. Puedes reanudarlo."
             job.update(status="interrupted", message=msg, progress=(done / total) if total else 0.0)
-        job["resumable"] = (all(Path(st.get(k) or "").is_file() for k in ("source", "video"))
+        job["resumable"] = (all(Path(p).is_file() for p in job_sources(job) + [st.get("video") or ""])
                             and (job_dir(job["id"]) / "targets.npy").is_file())
         jobs[job["id"]] = job
         if job["status"] == "interrupted":
             save_job(job["id"])
 
 
-def run_job(job_id: str, source: Path, video: Path, params: dict) -> None:
+def run_job(job_id: str, source_paths: list[Path], video: Path, params: dict) -> None:
     def status(msg: str, frac: float = 0.0, phase: str | None = None):
         fields = {"message": msg, "progress": frac}
         if phase:
@@ -157,6 +174,9 @@ def run_job(job_id: str, source: Path, video: Path, params: dict) -> None:
     with jobs_lock:
         st = jobs[job_id]["_"]  # estado de reanudación (se modifica en sitio y se guarda con save_job)
     targets: np.ndarray = params["targets"]
+    # índice (en source_paths) de la fuente asignada a cada persona elegida, en el orden de targets
+    target_sources: list[int] = params.get("target_sources") or [0] * len(targets)
+    source = source_paths[target_sources[0]]
     swapper = None
     try:
         status("Cargando modelos...", 0, "loading_models")
@@ -192,8 +212,12 @@ def run_job(job_id: str, source: Path, video: Path, params: dict) -> None:
         else:
             from .swappers import OnnxSwapper
 
-            identity = engine.identity_from(source, status)
-            swapper = OnnxSwapper(engine, params["model"], identity, status)
+            identities = {}
+            for n, s in enumerate(sorted(set(target_sources))):
+                if len(set(target_sources)) > 1:
+                    status(f"Calculando identidad de la fuente {s + 1} ({n + 1}/{len(set(target_sources))})...", 0)
+                identities[s] = engine.identity_from(source_paths[s], status)
+            swapper = OnnxSwapper(engine, params["model"], [identities[s] for s in target_sources], status)
 
         if not st.get("processed"):
             # tramos válidos: los registrados cuyo archivo existe, en orden y sin huecos
@@ -266,6 +290,75 @@ def models():
     return {"pretrained": public_catalog(), "character": public_character_catalog()}
 
 
+def _register_source(path: Path, name: str) -> dict:
+    """Detecta la cara de la fuente, calcula su identidad y la guarda (en memoria y en disco, para
+    que sobreviva a un reinicio del servidor). Lanza ValueError si no hay ninguna cara."""
+    from .scan import _jpeg_data_uri, face_thumb
+    from .engine import imread_unicode, sample_frames
+
+    engine = get_engine()
+    identity = engine.identity_from(path)
+    frame = imread_unicode(path) if path.suffix.lower() in IMAGE_EXT else next(iter(sample_frames(path, 1)), None)
+    det = engine.largest(frame) if frame is not None else None
+    thumb = _jpeg_data_uri(face_thumb(frame, det.bbox)) if det is not None else ""
+    sid = path.stem.removeprefix("src_")
+    np.save(path.with_suffix(".npy"), identity.normed.astype(np.float32))
+    path.with_suffix(".json").write_text(json.dumps({"name": name, "thumb": thumb}), encoding="utf-8")
+    return {"id": sid, "path": path, "embedding": identity.normed.astype(np.float32), "thumb": thumb, "name": name}
+
+
+def get_source(sid: str) -> dict:
+    """Fuente subida con /api/sources (si el servidor se reinició, se recupera del disco)."""
+    with jobs_lock:
+        src = sources.get(sid)
+    if src is not None:
+        return src
+    if not sid.isalnum():
+        raise HTTPException(400, "Id de fuente no válido.")
+    files = [f for f in UPLOADS.glob(f"src_{sid}.*") if f.suffix.lower() in IMAGE_EXT | VIDEO_EXT]
+    emb = UPLOADS / f"src_{sid}.npy"
+    if not files or not emb.is_file():
+        raise HTTPException(400, "Fuente no encontrada: vuelve a subirla.")
+    meta = {}
+    try:
+        meta = json.loads((UPLOADS / f"src_{sid}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    src = {"id": sid, "path": files[0], "embedding": np.load(emb), "thumb": meta.get("thumb", ""),
+           "name": meta.get("name", files[0].name)}
+    with jobs_lock:
+        sources[sid] = src
+    return src
+
+
+@app.post("/api/sources")
+def upload_sources(files: list[UploadFile] = File(...)):
+    """Sube una o varias fuentes (foto o video de cada persona autorizada). Devuelve, por archivo,
+    la miniatura de la cara detectada o el error."""
+    out = []
+    for upload in files:
+        sid = uuid.uuid4().hex[:12]
+        name = Path(upload.filename or "").name
+        try:
+            path = _save_upload(upload, IMAGE_EXT | VIDEO_EXT, f"src_{sid}")
+        except HTTPException as exc:
+            out.append({"name": name, "error": exc.detail})
+            continue
+        try:
+            src = _register_source(path, name)
+        except Exception as exc:  # noqa: BLE001
+            path.unlink(missing_ok=True)
+            out.append({"name": name, "error": str(exc)})
+            continue
+        with jobs_lock:
+            sources[sid] = src
+            while len(sources) > MAX_SOURCES:
+                sources.popitem(last=False)
+        out.append({"id": sid, "name": name, "thumb": src["thumb"],
+                    "kind": "video" if path.suffix.lower() in VIDEO_EXT else "image"})
+    return out
+
+
 @app.post("/api/scan")
 def scan(video: UploadFile = File(...)):
     """Escaneo rápido (~2 frames/s) del video destino: devuelve una miniatura por persona."""
@@ -288,9 +381,9 @@ def scan(video: UploadFile = File(...)):
 
 @app.post("/api/jobs")
 def create_job(
-    source: UploadFile = File(...),
     scan_id: str = Form(...),
-    targets: str = Form(...),               # ids de personas del escaneo, separados por comas
+    # asignación persona del escaneo -> fuente subida con /api/sources: "persona:fuente,persona:fuente"
+    targets: str = Form(...),
     task: str = Form("face"),               # "face" (face swap) | "character" (character swap)
     # face swap
     method: str = Form("pretrained"),
@@ -318,13 +411,20 @@ def create_job(
         scan_data = scans.get(scan_id)
     if scan_data is None:
         raise HTTPException(400, "Escaneo no encontrado: vuelve a subir el video destino.")
+    mapping: dict[int, str] = {}
     try:
-        ids = sorted({int(x) for x in targets.split(",") if x.strip()})
+        for pair in filter(None, (x.strip() for x in targets.split(","))):
+            person, sid = pair.split(":")
+            mapping[int(person)] = sid.strip()
     except ValueError:
-        raise HTTPException(400, "targets debe ser una lista de ids separados por comas") from None
+        raise HTTPException(400, "targets debe tener la forma 'persona:fuente,persona:fuente'") from None
+    ids = sorted(mapping)
     people = {p["id"]: p for p in scan_data["people"]}
     if not ids or any(i not in people for i in ids):
-        raise HTTPException(400, "Selecciona al menos una persona del escaneo.")
+        raise HTTPException(400, "Asigna una fuente al menos a una persona del escaneo.")
+    source_ids = sorted(set(mapping.values()), key=list(mapping.values()).index)
+    srcs = [get_source(sid) for sid in source_ids]
+    target_sources = [source_ids.index(mapping[i]) for i in ids]
     if task == "character":
         if len(ids) != 1:
             raise HTTPException(400, "En character swap se cambia a una sola persona: selecciona solo una.")
@@ -338,9 +438,11 @@ def create_job(
             raise HTTPException(400, "method debe ser 'pretrained' o 'encoder'")
         if method == "pretrained" and model not in SWAP_MODELS:
             raise HTTPException(400, f"Modelo desconocido: {model}")
+        if method == "encoder" and len(source_ids) > 1:
+            raise HTTPException(400, "El encoder propio se entrena para una sola fuente: asigna la misma "
+                                     "fuente a todas las personas o usa un modelo pre-entrenado.")
 
     job_id = uuid.uuid4().hex[:12]
-    source_path = _save_upload(source, IMAGE_EXT | VIDEO_EXT, f"{job_id}_source")
     job_dir(job_id).mkdir(parents=True, exist_ok=True)
     params = {
         "task": task, "method": method, "model": model, "occlusion": occlusion, "region": region,
@@ -348,19 +450,20 @@ def create_job(
         "char_model": char_model, "prompt": prompt.strip()[:500], "start": max(0.0, start),
         "duration": float(min(max(duration, 1.0), CHARACTER_MODELS.get(char_model, {}).get("max_seconds", 30))), "turbo": turbo, "hq": hq,
         "targets": np.stack([people[i]["embedding"] for i in ids]),
+        "target_sources": target_sources,
         "hf_token": hf_token.strip() or None,  # solo en memoria para este trabajo; nunca se devuelve
     }
-    public = {k: v for k, v in params.items() if k not in ("targets", "hf_token")} | {"target_ids": ids}
+    public = {k: v for k, v in params.items() if k not in ("targets", "hf_token")} | {"target_ids": ids, "source_ids": source_ids}
     np.save(job_dir(job_id) / "targets.npy", params["targets"])
     with jobs_lock:
         jobs[job_id] = {
             "id": job_id, "status": "queued", "progress": 0.0, "message": "En cola", "params": public,
             "created": time.time(), "resumable": True,
-            "_": {"source": str(source_path), "video": str(scan_data["video"]), "segments": [],
+            "_": {"sources": [str(s["path"]) for s in srcs], "video": str(scan_data["video"]), "segments": [],
                   "processed": False, "trained_minutes": 0.0, "total_frames": 0},
         }
     save_job(job_id)
-    executor.submit(run_job, job_id, source_path, scan_data["video"], params)
+    executor.submit(run_job, job_id, [s["path"] for s in srcs], scan_data["video"], params)
     return {"id": job_id}
 
 
@@ -399,7 +502,7 @@ def resume_job(job_id: str):
         }
         job.update(status="queued", progress=0.0, message="En cola para reanudar")
     save_job(job_id)
-    executor.submit(run_job, job_id, Path(st["source"]), Path(st["video"]), params)
+    executor.submit(run_job, job_id, [Path(p) for p in job_sources(job)], Path(st["video"]), params)
     return {"id": job_id}
 
 
@@ -439,8 +542,8 @@ def delete_job(job_id: str):
             raise HTTPException(409, "No se puede descartar un trabajo en marcha.")
         jobs.pop(job_id)
     shutil.rmtree(job_dir(job_id), ignore_errors=True)
-    source = job.get("_", {}).get("source")
-    if source and job["status"] != "done":  # la foto/video fuente subida solo servía para este trabajo
+    source = job.get("_", {}).get("source")  # trabajos antiguos: la fuente solo servía para ese trabajo
+    if source and job["status"] != "done":    # (las de /api/sources se pueden reutilizar: se conservan)
         Path(source).unlink(missing_ok=True)
     return {"ok": True}
 
@@ -453,6 +556,72 @@ def get_result(job_id: str):
         raise HTTPException(404, "Resultado no disponible")
     prefix = "characterswap" if job["params"].get("task") == "character" else "faceswap"
     return FileResponse(job["result"], media_type="video/mp4", filename=f"{prefix}_{job_id}.mp4")
+
+
+# ------------------------------------------------------------------ buscador de videos sugeridos
+scrape_executor = ThreadPoolExecutor(max_workers=1)  # un análisis de página a la vez
+_scrape_index = None
+
+
+def scrape_index():
+    global _scrape_index
+    if _scrape_index is None:
+        from .scraper import ScrapeIndex
+
+        _scrape_index = ScrapeIndex(SCRAPE)
+    return _scrape_index
+
+
+@app.post("/api/scrapes")
+def start_scrape(url: str = Body(...), deep: bool = Body(False), max_pages: int = Body(1),
+                 max_videos: int = Body(150)):
+    """Analiza una página con videos: guarda en el índice los rostros de sus miniaturas."""
+    from urllib.parse import urlparse
+
+    from .scraper import analyze_page, new_scrape_id
+
+    url = url.strip()
+    if urlparse(url).scheme not in ("http", "https") or not urlparse(url).netloc:
+        raise HTTPException(400, "Introduce un enlace completo (https://…).")
+    sid = new_scrape_id()
+    index = scrape_index()
+    index.set_progress(sid, url=url, created=time.time(), status="queued", message="En cola", progress=0.0,
+                       n_videos=0, n_faces=0, n_images=0, title="")
+    scrape_executor.submit(analyze_page, get_engine(), index, sid, url, deep,
+                           max(1, min(max_pages, 10)), max(1, min(max_videos, 500)))
+    return {"id": sid}
+
+
+@app.get("/api/scrapes")
+def list_scrapes():
+    return scrape_index().list()
+
+
+@app.get("/api/scrapes/{sid}")
+def get_scrape(sid: str):
+    item = scrape_index().get(sid)
+    if item is None:
+        raise HTTPException(404, "Análisis no encontrado")
+    return item
+
+
+@app.delete("/api/scrapes/{sid}")
+def delete_scrape(sid: str):
+    if not scrape_index().delete(sid):
+        raise HTTPException(404, "Análisis no encontrado (o todavía en marcha)")
+    return {"ok": True}
+
+
+@app.post("/api/similar")
+def similar(source_ids: list[str] = Body(...), scrape_ids: list[str] | None = Body(None),
+            min_sim: float = Body(0.0), limit: int = Body(200)):
+    """Videos analizados cuyos rostros se parecen a las fuentes elegidas, del más parecido al menos."""
+    from .scraper import search
+
+    if not source_ids:
+        raise HTTPException(400, "Elige al menos una fuente (modelo) para buscar parecidos.")
+    models = [(sid, get_source(sid)["embedding"]) for sid in source_ids]
+    return search(scrape_index(), models, scrape_ids or None, min_sim, max(1, min(limit, 500)))
 
 
 load_jobs()

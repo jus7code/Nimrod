@@ -178,21 +178,39 @@ class TargetMatcher:
         t = np.asarray(targets, np.float32).reshape(-1, 512)
         self.targets = t / np.linalg.norm(t, axis=1, keepdims=True)
         self.strong, self.weak, self.memory = strong, weak, memory
-        self.tracks: list[tuple[np.ndarray, int]] = []  # (bbox, frames desde la última vez vista)
+        # (bbox, frames desde la última vez vista, índice de la persona elegida)
+        self.tracks: list[tuple[np.ndarray, int, int]] = []
+
+    def similarities(self, frame: np.ndarray, faces: list[Detection]) -> np.ndarray:
+        """N×K: similitud de cada cara con cada persona elegida."""
+        if not faces:
+            return np.zeros((0, len(self.targets)), np.float32)
+        return self.engine.embed(frame, faces) @ self.targets.T
 
     def similarity(self, frame: np.ndarray, faces: list[Detection]) -> np.ndarray:
-        if not faces:
-            return np.zeros(0, np.float32)
-        return (self.engine.embed(frame, faces) @ self.targets.T).max(1)
+        sims = self.similarities(frame, faces)
+        return sims.max(1) if len(sims) else np.zeros(0, np.float32)
 
     def __call__(self, frame: np.ndarray, faces: list[Detection]) -> list[Detection]:
-        sims = self.similarity(frame, faces)
+        """Devuelve las caras aceptadas con `det.target` = índice de la persona elegida que son."""
+        sims = self.similarities(frame, faces)
         chosen = []
-        for det, sim in zip(faces, sims):
-            near = max((_iou(det.bbox, b) for b, _ in self.tracks), default=0.0)
-            if sim >= self.strong or (sim >= self.weak and near > 0.3):
-                chosen.append(det)
-        kept = [(b, age + 1) for b, age in self.tracks
+        for det, row in zip(faces, sims):
+            best = int(row.argmax())
+            sim = float(row[best])
+            near, near_target = 0.0, best
+            for b, _, tgt in self.tracks:
+                iou = _iou(det.bbox, b)
+                if iou > near:
+                    near, near_target = iou, tgt
+            if sim >= self.strong:
+                det.target = best
+            elif sim >= self.weak and near > 0.3:
+                det.target = near_target  # de perfil o borrosa: sigue siendo quien era en el frame anterior
+            else:
+                continue
+            chosen.append(det)
+        kept = [(b, age + 1, tgt) for b, age, tgt in self.tracks
                 if age + 1 < self.memory and all(_iou(b, d.bbox) < 0.3 for d in chosen)]
-        self.tracks = [(d.bbox.copy(), 0) for d in chosen] + kept
+        self.tracks = [(d.bbox.copy(), 0, d.target) for d in chosen] + kept
         return chosen

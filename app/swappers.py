@@ -18,7 +18,9 @@ from .models_registry import SWAP_MODELS
 
 
 class OnnxSwapper:
-    def __init__(self, engine: FaceEngine, key: str, identity: Identity, status_cb: StatusCb = None):
+    def __init__(self, engine: FaceEngine, key: str, identity: Identity | list[Identity], status_cb: StatusCb = None):
+        """`identity` puede ser una lista: una identidad por persona elegida en el escaneo (en el mismo
+        orden que los targets). Entonces `swap(crop, i)` usa la identidad de la persona i."""
         spec = SWAP_MODELS[key]
         self.key, self.spec = key, spec
         self.type = spec["type"]
@@ -37,7 +39,10 @@ class OnnxSwapper:
         self.inputs = {i.name: i for i in self.session.get_inputs()}
         self.fp16 = any("float16" in i.type for i in self.inputs.values())
         self.output_name = self.session.get_outputs()[0].name  # GHOST devuelve además 8 mapas internos
-        self.latent = self._prepare_identity(engine, identity)
+        identities = identity if isinstance(identity, list) else [identity]
+        cache: dict[int, np.ndarray] = {}  # la misma fuente asignada a varias personas se prepara una vez
+        self.latents = [cache.setdefault(id(i), self._prepare_identity(engine, i)) for i in identities]
+        self.multi = len(self.latents) > 1
 
     # -------------------------------------------------------------- identidad
     def _prepare_identity(self, engine: FaceEngine, identity: Identity) -> np.ndarray:
@@ -56,12 +61,12 @@ class OnnxSwapper:
         return latent.astype(np.float16 if self.fp16 else np.float32)
 
     # -------------------------------------------------------------- inferencia
-    def swap(self, crop: np.ndarray) -> np.ndarray:
+    def swap(self, crop: np.ndarray, which: int = 0) -> np.ndarray:
         x = crop[:, :, ::-1].astype(np.float32) / 255.0          # BGR -> RGB, 0..1
         x = ((x - self.mean) / self.std).transpose(2, 0, 1)[None]
         if self.fp16:
             x = x.astype(np.float16)
-        out = self.session.run([self.output_name], {"target": x, "source": self.latent})[0][0].astype(np.float32)
+        out = self.session.run([self.output_name], {"target": x, "source": self.latents[which]})[0][0].astype(np.float32)
         out = out.transpose(1, 2, 0)
         if self.type in ("ghost", "hyperswap"):                  # salida en [-1, 1]
             out = out * self.std + self.mean

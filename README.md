@@ -64,6 +64,7 @@ extremos del compromiso (sección 7).
 6. [El encoder propio: cómo funciona y cómo se entrena](#6-el-encoder-propio-cómo-funciona-y-cómo-se-entrena)
 7. [Character swap: la persona completa](#7-character-swap-la-persona-completa)
 8. [Escaneo de rostros y selección de la persona](#8-escaneo-de-rostros-y-selección-de-la-persona)
+    - [8b. Videos sugeridos](#8b-videos-sugeridos-buscar-personas-parecidas-en-una-página-web)
 9. [Comparativa final: qué método usar](#9-comparativa-final-qué-método-usar)
 10. [Modelos auxiliares](#10-modelos-auxiliares)
 11. [Rendimiento: qué cuesta cada paso](#11-rendimiento-qué-cuesta-cada-paso)
@@ -128,16 +129,21 @@ transformer + 0,5 GB del VAE). Comprueba que tienes espacio en disco.
 ## 2. Cómo se usa la página
 
 0. **Modo**: *Face swap* (solo la cara) o *Character swap* (persona completa).
-1. **Persona autorizada (fuente)**.
+1. **Personas autorizadas (fuentes)**. Puedes subir **varias** (una foto o video por persona): cada
+   archivo se analiza al momento y aparece como *Fuente 1, Fuente 2…* con su cara detectada (los que no
+   tienen cara se marcan en rojo y no se usan).
    - Face swap: una selfie frontal o, mejor, un video de 10–60 s girando un poco la cabeza. Con video,
      los modelos pre-entrenados promedian la identidad de 24 frames, y el encoder tiene muchas caras.
    - Character swap: una **foto de cuerpo entero**, de frente, bien iluminada y **con la ropa que debe
      aparecer** (traje, corbata…). Si subes un video se elige automáticamente el frame más frontal.
 2. **Video destino**. Al subirlo se **escanea** solo (unos segundos; sección 8).
-3. **¿A quién se cambia?**: aparece una miniatura por persona detectada, con el porcentaje del video
-   en el que sale (al pasar el ratón se ve el frame completo con su caja). En face swap puedes marcar una
-   o varias; en character swap, una. Las personas que salen en un solo frame se ocultan bajo
-   "Mostrar N más".
+   ¿No tienes video destino? Pulsa **Buscar videos sugeridos** (sección 8b).
+3. **¿A quién se cambia y por quién?**: aparece una miniatura por persona detectada, con el porcentaje
+   del video en el que sale (al pasar el ratón se ve el frame completo con su caja), y debajo un selector
+   **Reemplazar por: Fuente N / No cambiar**. En face swap puedes asignar fuentes a varias personas
+   (p. ej. persona 1 → Fuente 2 y persona 3 → Fuente 1, en el mismo video); en character swap, a una.
+   El *Encoder propio* se entrena para un solo par, así que admite una sola fuente. Las personas que
+   salen en un solo frame se ocultan bajo "Mostrar N más".
 4. **Modelo**.
    - Face swap: uno de los tres pre-entrenados o el *Encoder propio*, y las opciones de integración.
    - Character swap: VACE / Wan-Animate / MoCha, el **tramo** (inicio y duración, 1–30 s), una
@@ -646,8 +652,41 @@ embedding empeora pero sigue estando en el mismo sitio). Coste: ~3 ms por cara (
 ~19 fps). En el *Encoder propio*, el mismo filtro hace que solo se extraigan para entrenar las caras de
 la persona elegida.
 
+Con **varias fuentes**, el `TargetMatcher` además indica *cuál* de las personas elegidas es cada cara
+(la de mayor similitud; si la cara solo se acepta por continuidad, hereda la persona de la caja con la
+que solapa), y el swapper usa la identidad de la fuente asignada a esa persona. Cada fuente se codifica
+una sola vez aunque se asigne a varias personas.
+
 En character swap la identidad se une al **cuerpo**: la persona cuya máscara de YOLO contiene la cara
 reconocida (sección 7.2).
+
+## 8b. Videos sugeridos: buscar personas parecidas en una página web
+
+El face swap queda más natural cuando la persona del video destino ya se parece a la fuente (forma de la
+cara, edad, tono de piel). Si no tienes video destino, la tarjeta **Videos sugeridos** busca en una página
+con muchos videos aquellos cuyas personas tienen rasgos faciales parecidos a la fuente elegida
+([app/scraper.py](app/scraper.py)):
+
+1. **Analizar la página** (`POST /api/scrapes`): se descarga el HTML (y hasta 10 páginas siguientes de la
+   paginación, `rel="next"` o enlaces "Siguiente"), se extrae cada enlace que contiene una miniatura
+   (`<img>` con `src`/`data-src`/`srcset`, `background-image`, `<video poster>`, `og:image`, `thumbnailUrl`
+   de JSON-LD) y, en modo **a fondo**, se visita también cada página de video del mismo sitio para sacar más
+   fotos. En cada miniatura se detectan las caras (SCRFD) y se guarda su embedding ArcFace en
+   `data/scrape/<id>/` junto con un recorte de la cara y el enlace. Es el índice de "actores": se conserva
+   entre sesiones y se puede borrar desde la tarjeta.
+2. **Buscar parecidos** (`POST /api/similar`): se compara la identidad de las fuentes elegidas con todas
+   las caras del índice (de esa página o de todas las analizadas) y se devuelve, por video, la cara más
+   parecida. La página muestra la miniatura con la cara encontrada, el porcentaje de parecido y el enlace;
+   al hacer clic se abre la página del video, y el usuario decide si lo descarga y lo sube en el paso 2.
+
+Cómo leer el porcentaje (similitud coseno ArcFace): **≥ 40 %** suele ser la misma persona; **20–40 %**,
+rasgos parecidos; **< 15 %**, nada que ver. El filtro "Parecido mínimo" se aplica en la página, sin
+volver a buscar.
+
+Límites: respeta `robots.txt`, se identifica con su propio User-Agent, deja 0,5 s entre páginas, solo
+sigue enlaces del mismo sitio y no inicia sesión ni descarga videos (solo miniaturas). Sitios que
+construyen la lista de videos con JavaScript no exponen las miniaturas en el HTML y no dan resultados.
+Solo compara **rasgos faciales**; la complexión o la ropa no se tienen en cuenta.
 
 ---
 
@@ -729,7 +768,8 @@ app/
 ├── main.py              API FastAPI: escaneo, trabajos, progreso, catálogo de modelos
 ├── engine.py            Pipeline de face swap: detección, embeddings, suavizado, alineación, máscaras, color, video
 ├── scan.py              Escaneo rápido + clustering de rostros; TargetMatcher (filtrar a las personas elegidas)
-├── swappers.py          inswapper / HyperSwap / GHOST (ONNX)
+├── swappers.py          inswapper / HyperSwap / GHOST (ONNX), una identidad por persona elegida
+├── scraper.py           Videos sugeridos: analiza una página, indexa rostros de miniaturas y busca parecidos
 ├── models_registry.py   Catálogo: URLs, plantillas y normalización (face swap) y modelos de character swap
 ├── downloads.py         Descargas con progreso y reanudación
 ├── encoder/
@@ -742,7 +782,7 @@ app/
 └── static/index.html    La página
 scripts/download_models.py   (opcional) descarga inswapper por adelantado
 models/                      modelos descargados (no se suben a git)
-data/                        uploads/, outputs/, encoder_models/, work/ (no se suben a git)
+data/                        uploads/, outputs/, encoder_models/, work/, scrape/ (no se suben a git)
 ```
 
 ## 13. Limitaciones y siguientes experimentos
@@ -768,7 +808,11 @@ data/                        uploads/, outputs/, encoder_models/, work/ (no se s
 
 - Consentimiento informado y por escrito de **todas** las personas que aparecen en la fuente y en el video.
 - No publicar resultados sin la marca de contenido sintético ni hacerlos pasar por reales.
-- Borrar `data/` al acabar el experimento.
+- Borrar `data/` al acabar el experimento (incluido `data/scrape/`, que guarda rostros de terceros
+  sacados de páginas web).
+- **Videos sugeridos**: que alguien en un video público se parezca a la fuente **no** significa que haya
+  consentido aparecer en un face swap. El buscador sirve para encontrar candidatos; antes de usar uno hace
+  falta el permiso de esa persona y que la licencia del video lo permita.
 - Con **Wan-Animate** (fal.ai o el Space gratuito de Hugging Face) los fotogramas del recorte y la foto
   de la persona se suben a un servidor de terceros: el consentimiento debe cubrir también ese tratamiento.
 - Si el video destino es una grabación de terceros (p. ej. una conferencia), además de la persona que

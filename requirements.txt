@@ -2,6 +2,7 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9
+requests>=2.31          # buscador de videos sugeridos (app/scraper.py)
 
 # Visión / modelos
 insightface>=2.1
